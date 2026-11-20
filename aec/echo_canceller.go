@@ -8,17 +8,17 @@ import "fmt"
 
 // echoCanceller wires the subtractor + render delay buffer together and
 // adapts the 10 ms / 160-sample APM frame size to the 4 ms / 64-sample
-// internal block size used by AEC3.
+// internal block size used by AEC3, the way EchoCanceller3 does.
 type echoCanceller struct {
 	renderDelay *renderDelayBuffer
 	sub         *subtractor
 
-	renderQueue  []float32 // pending render samples awaiting block extraction
-	captureQueue []float32 // pending capture samples awaiting block extraction
-	outputQueue  []float32 // cleaned capture samples awaiting frame extraction
+	renderBlocker  frameBlocker
+	captureBlocker frameBlocker
+	outputFramer   *blockFramer
 
-	scratchBlock [kBlockSize]float32
-	subOutput    subtractorOutput
+	block     [kBlockSize]float32
+	subOutput subtractorOutput
 }
 
 // newEchoCanceller constructs the canceller. filterLengthBlocks sets the
@@ -26,8 +26,9 @@ type echoCanceller struct {
 // the upstream default for the refined filter).
 func newEchoCanceller(filterLengthBlocks int) *echoCanceller {
 	return &echoCanceller{
-		renderDelay: newRenderDelayBuffer(filterLengthBlocks),
-		sub:         newSubtractor(filterLengthBlocks),
+		renderDelay:  newRenderDelayBuffer(filterLengthBlocks),
+		sub:          newSubtractor(filterLengthBlocks),
+		outputFramer: newBlockFramer(),
 	}
 }
 
@@ -37,11 +38,14 @@ func (e *echoCanceller) AnalyzeRender(far []float32) error {
 	if len(far) != kFrameSize {
 		return fmt.Errorf("%w: render frame has %d samples, want %d", ErrFrameShape, len(far), kFrameSize)
 	}
-	e.renderQueue = append(e.renderQueue, far...)
-	for len(e.renderQueue) >= kBlockSize {
-		copy(e.scratchBlock[:], e.renderQueue[:kBlockSize])
-		e.renderDelay.insertBlock(e.scratchBlock[:])
-		e.renderQueue = e.renderQueue[kBlockSize:]
+	block := e.block[:]
+	for start := 0; start < kFrameSize; start += kSubFrameLength {
+		e.renderBlocker.insertSubFrameAndExtractBlock(far[start:start+kSubFrameLength], block)
+		e.renderDelay.insertBlock(block)
+	}
+	if e.renderBlocker.isBlockAvailable() {
+		e.renderBlocker.extractBlock(block)
+		e.renderDelay.insertBlock(block)
 	}
 
 	return nil
@@ -49,36 +53,42 @@ func (e *echoCanceller) AnalyzeRender(far []float32) error {
 
 // ProcessCapture runs one 10 ms / 160-sample near-end frame through the
 // subtractor in place. Far-end frames must already have been provided
-// via AnalyzeRender to drive the filter.
+// via AnalyzeRender to drive the filter. The output lags the input by
+// one block.
 func (e *echoCanceller) ProcessCapture(near []float32) error {
 	if len(near) != kFrameSize {
 		return fmt.Errorf("%w: capture frame has %d samples, want %d", ErrFrameShape, len(near), kFrameSize)
 	}
-	e.captureQueue = append(e.captureQueue, near...)
-	for len(e.captureQueue) >= kBlockSize {
-		// Advance render-side read position so the filter sees the most
-		// recent inserted block first.
-		e.renderDelay.step()
-		copy(e.scratchBlock[:], e.captureQueue[:kBlockSize])
-		e.sub.process(e.renderDelay.renderBuffer(), e.scratchBlock[:], &e.subOutput)
-		e.outputQueue = append(e.outputQueue, e.subOutput.eRefined[:]...)
-		e.captureQueue = e.captureQueue[kBlockSize:]
+	block := e.block[:]
+	for start := 0; start < kFrameSize; start += kSubFrameLength {
+		subFrame := near[start : start+kSubFrameLength]
+		e.captureBlocker.insertSubFrameAndExtractBlock(subFrame, block)
+		e.processBlock(block)
+		e.outputFramer.insertBlockAndExtractSubFrame(block, subFrame)
 	}
-	if len(e.outputQueue) < kFrameSize {
-		// Not enough cleaned samples yet; emit input unchanged for this frame.
-		return nil
+	if e.captureBlocker.isBlockAvailable() {
+		e.captureBlocker.extractBlock(block)
+		e.processBlock(block)
+		e.outputFramer.insertBlock(block)
 	}
-	copy(near, e.outputQueue[:kFrameSize])
-	e.outputQueue = e.outputQueue[kFrameSize:]
 
 	return nil
+}
+
+// processBlock cancels the echo in one capture block in place.
+func (e *echoCanceller) processBlock(block []float32) {
+	// Advance render-side read position so the filter sees the most
+	// recent inserted block first.
+	e.renderDelay.step()
+	e.sub.process(e.renderDelay.renderBuffer(), block, &e.subOutput)
+	copy(block, e.subOutput.eRefined[:])
 }
 
 // HandleEchoPathChange resets adaptation state.
 func (e *echoCanceller) HandleEchoPathChange() {
 	e.renderDelay.reset()
 	e.sub.handleEchoPathChange()
-	e.renderQueue = e.renderQueue[:0]
-	e.captureQueue = e.captureQueue[:0]
-	e.outputQueue = e.outputQueue[:0]
+	e.renderBlocker.reset()
+	e.captureBlocker.reset()
+	e.outputFramer.reset()
 }

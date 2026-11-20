@@ -114,3 +114,43 @@ func computeERLE(mic, residual []float32, frameLen int) float64 {
 
 	return 10 * math.Log10(pm/pr)
 }
+
+func TestCanceller_ZeroAllocSteadyState(t *testing.T) {
+	canceller, err := New(DefaultConfig(), 16000, 1)
+	require.NoError(t, err)
+
+	far := [][]float32{make([]float32, kFrameSize)}
+	near := [][]float32{make([]float32, kFrameSize)}
+	process := func() {
+		_ = canceller.AnalyzeRender(far)
+		_ = canceller.ProcessCapture(near)
+	}
+	for range 10 {
+		process()
+	}
+	assert.Zero(t, testing.AllocsPerRun(100, process))
+}
+
+// With no far-end signal the canceller only delays the capture signal by
+// the block framer's one block.
+func TestCanceller_DelaysCaptureByOneBlock(t *testing.T) {
+	canceller, err := New(DefaultConfig(), 16000, 1)
+	require.NoError(t, err)
+
+	const numFrames = 10
+	far := [][]float32{make([]float32, kFrameSize)}
+	input := make([]float32, numFrames*kFrameSize)
+	for i := range input {
+		input[i] = float32(i%100) - 50
+	}
+	output := make([]float32, 0, len(input))
+	for i := range numFrames {
+		near := [][]float32{append([]float32(nil), input[i*kFrameSize:(i+1)*kFrameSize]...)}
+		require.NoError(t, canceller.AnalyzeRender(far))
+		require.NoError(t, canceller.ProcessCapture(near))
+		output = append(output, near[0]...)
+	}
+
+	assert.Equal(t, make([]float32, kBlockSize), output[:kBlockSize])
+	assert.Equal(t, input[:len(input)-kBlockSize], output[kBlockSize:])
+}
