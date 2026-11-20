@@ -25,6 +25,7 @@ func TestProcessor_SplitBand(t *testing.T) {
 	cfg32.NS = NSConfig{Enabled: true, Level: NSModerate}
 
 	cfg48 := DefaultConfig(Rate48k, 1)
+	cfg48.MaxProcessingRate = Rate48k
 	cfg48.HPF.Enabled = true
 	cfg48.NS = NSConfig{Enabled: true, Level: NSModerate}
 	cfg48.AGC = AGCConfig{Enabled: true, CompressionGain: 6}
@@ -50,6 +51,7 @@ func TestProcessor_SplitBand(t *testing.T) {
 // Full-band echo handling needs upper-band gain plumbing.
 func TestProcessor_48kHz_AEC(t *testing.T) {
 	cfg := DefaultConfig(Rate48k, 1)
+	cfg.MaxProcessingRate = Rate48k
 	cfg.AEC.Enabled = true
 	proc, err := New(cfg)
 	require.NoError(t, err)
@@ -159,6 +161,7 @@ func TestProcessor_HPFFiltersFullBand(t *testing.T) {
 		numBands int
 	}{{Rate32k, 2}, {Rate48k, 3}} {
 		cfg := DefaultConfig(tc.rate, 1)
+		cfg.MaxProcessingRate = Rate48k
 		cfg.HPF.Enabled = true
 		proc, err := New(cfg)
 		require.NoError(t, err)
@@ -219,6 +222,7 @@ func TestProcessor_NSSuppressesUpperBands(t *testing.T) {
 		toneHz float64
 	}{{Rate32k, 12000}, {Rate48k, 20000}} {
 		cfg := DefaultConfig(tc.rate, 1)
+		cfg.MaxProcessingRate = Rate48k
 		cfg.NS = NSConfig{Enabled: true, Level: NSHigh}
 		proc, err := New(cfg)
 		require.NoError(t, err)
@@ -253,6 +257,7 @@ func TestProcessor_NSSuppressesUpperBands(t *testing.T) {
 // capture rate before it is split into bands for the echo canceller.
 func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 	cfg := DefaultConfig(Rate48k, 1)
+	cfg.MaxProcessingRate = Rate48k
 	cfg.ReverseSampleRate = Rate16k
 	cfg.AEC.Enabled = true
 	proc, err := New(cfg)
@@ -295,4 +300,56 @@ func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 		require.NoError(t, proc.ProcessStream(near))
 		require.Equal(t, want[0], near.Data[0], "frame %d", i)
 	}
+}
+
+// By default the band modules run at 32 kHz at most, like upstream: a
+// 48 kHz stream is resampled to 32 kHz for them and back.
+func TestProcessor_DefaultCaps48kHzProcessingAt32kHz(t *testing.T) {
+	cfg := DefaultConfig(Rate48k, 1)
+	cfg.HPF.Enabled = true
+	proc, err := New(cfg)
+	require.NoError(t, err)
+
+	down, err := resampler.NewPushSincResampler(480, 320)
+	require.NoError(t, err)
+	up, err := resampler.NewPushSincResampler(320, 480)
+	require.NoError(t, err)
+	filter, err := hpf.New(32000, 1)
+	require.NoError(t, err)
+	splitter, err := subband.NewSplittingFilter(1, 2)
+	require.NoError(t, err)
+	bands := allocBandBuffers(2, 1)
+
+	rng := rand.New(rand.NewPCG(23, 0)) //nolint:gosec // Deterministic test signal.
+	for i := range 20 {
+		near := NewFrame(Rate48k, 1)
+		for j := range near.Data[0] {
+			near.Data[0][j] = float32(rng.NormFloat64() * 0.1)
+		}
+
+		buffer := [][]float32{make([]float32, 320)}
+		require.NoError(t, down.Resample(near.Data[0], buffer[0]))
+		scaleUp(buffer)
+		require.NoError(t, filter.Process(buffer))
+		require.NoError(t, splitter.Analysis(buffer, bands))
+		require.NoError(t, splitter.Synthesis(bands, buffer))
+		scaleDown(buffer)
+		want := make([]float32, 480)
+		require.NoError(t, up.Resample(buffer[0], want))
+
+		require.NoError(t, proc.ProcessStream(near))
+		require.Equal(t, want, near.Data[0], "frame %d", i)
+	}
+}
+
+// Without a band module the cap does not apply: the gain controller
+// runs at the stream rate.
+func TestProcessor_FullBandModulesIgnoreProcessingCap(t *testing.T) {
+	cfg := DefaultConfig(Rate48k, 1)
+	cfg.AGC.Enabled = true
+	proc, err := New(cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, Rate32k, proc.Config().MaxProcessingRate)
+	assert.Equal(t, Rate48k, proc.procRate)
 }

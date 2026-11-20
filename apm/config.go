@@ -9,13 +9,21 @@ package apm
 // apply to the far-end (render) stream and default to the capture-side
 // values when zero.
 //
-// The modules run at 16, 32 or 48 kHz. An 8 kHz stream is resampled to
-// 16 kHz and back.
+// The modules run at 16, 32 or 48 kHz. A stream at another rate is
+// resampled to the processing rate and back: an 8 kHz stream runs at
+// 16 kHz, and a 48 kHz stream at MaxProcessingRate.
 type Config struct {
 	SampleRate         SampleRate
 	NumChannels        int
 	ReverseSampleRate  SampleRate
 	ReverseNumChannels int
+
+	// MaxProcessingRate caps the rate of the modules that work on
+	// frequency bands (high-pass filter, noise suppressor and echo
+	// canceller), like upstream's maximum_internal_processing_rate. It
+	// may only be Rate32k or Rate48k; any other value is treated as
+	// Rate48k. DefaultConfig uses the upstream default, Rate32k.
+	MaxProcessingRate SampleRate
 
 	HPF HPFConfig
 	NS  NSConfig
@@ -63,9 +71,10 @@ type AECConfig struct {
 // enable them by setting their Enabled flag.
 func DefaultConfig(rate SampleRate, channels int) Config {
 	return Config{
-		SampleRate:  rate,
-		NumChannels: channels,
-		NS:          NSConfig{Level: NSModerate},
-		AGC:         AGCConfig{TargetLevelDBFS: -3, CompressionGain: 9},
+		SampleRate:        rate,
+		NumChannels:       channels,
+		MaxProcessingRate: Rate32k,
+		NS:                NSConfig{Level: NSModerate},
+		AGC:               AGCConfig{TargetLevelDBFS: -3, CompressionGain: 9},
 	}
 }

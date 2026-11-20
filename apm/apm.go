@@ -31,9 +31,6 @@ var (
 )
 
 const (
-	// maxSplittingRate matches the default of upstream's
-	// maximum_internal_processing_rate, in Hz.
-	maxSplittingRate = 48000
 	// bandRate is the sample rate of one band, in Hz. A 16 kHz stream is
 	// a single band.
 	bandRate = 16000
@@ -45,8 +42,8 @@ const (
 // Not safe for concurrent use.
 type Processor struct {
 	cfg Config
-	// procRate is the rate the modules run at: the stream rate, or
-	// 16 kHz for an 8 kHz stream.
+	// procRate is the rate the modules run at, as picked by
+	// suitableProcessRate.
 	procRate SampleRate
 
 	hpf *hpf.Filter
@@ -87,7 +84,7 @@ func New(cfg Config) (*Processor, error) {
 	bandModules := cfg.HPF.Enabled || cfg.NS.Enabled || cfg.AEC.Enabled
 	proc := &Processor{
 		cfg:      cfg,
-		procRate: SampleRate(suitableProcessRate(int(cfg.SampleRate), maxSplittingRate, bandModules)),
+		procRate: SampleRate(suitableProcessRate(int(cfg.SampleRate), int(cfg.MaxProcessingRate), bandModules)),
 	}
 	if err := proc.initCapture(bandModules); err != nil {
 		return nil, err
@@ -118,6 +115,9 @@ func resolveConfig(cfg Config) (Config, error) {
 	}
 	if cfg.ReverseNumChannels == 0 {
 		cfg.ReverseNumChannels = cfg.NumChannels
+	}
+	if cfg.MaxProcessingRate != Rate32k {
+		cfg.MaxProcessingRate = Rate48k
 	}
 	if !cfg.ReverseSampleRate.Valid() {
 		return cfg, fmt.Errorf("%w: reverse %d", ErrInvalidSampleRate, cfg.ReverseSampleRate)

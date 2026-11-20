@@ -35,7 +35,10 @@ _ = proc.ProcessStream(nearEnd)       // microphone audio, processed in place
 ```
 
 Supported rates are 8, 16, 32 and 48 kHz. An 8 kHz stream is resampled to
-16 kHz for processing. At 32 and 48 kHz the echo canceller only works on the
+16 kHz for processing. As in WebRTC, the high-pass filter, noise suppressor
+and echo canceller run at 32 kHz at most by default, so a 48 kHz stream is
+resampled to 32 kHz for them; set `MaxProcessingRate` to `apm.Rate48k` to
+process the full band. Above 16 kHz the echo canceller only works on the
 lowest 16 kHz band.
 
 ### Roadmap

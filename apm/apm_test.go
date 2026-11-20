@@ -141,24 +141,27 @@ func TestProcessor_MixedRatesWithAEC(t *testing.T) {
 }
 
 func TestProcessor_ZeroAllocAllModules(t *testing.T) {
-	for _, rate := range []SampleRate{Rate8k, Rate16k, Rate32k, Rate48k} {
-		cfg := DefaultConfig(rate, 2)
-		cfg.HPF.Enabled = true
-		cfg.AEC.Enabled = true
-		cfg.NS.Enabled = true
-		cfg.AGC.Enabled = true
-		proc, err := New(cfg)
-		require.NoError(t, err)
+	for _, maxRate := range []SampleRate{Rate32k, Rate48k} {
+		for _, rate := range []SampleRate{Rate8k, Rate16k, Rate32k, Rate48k} {
+			cfg := DefaultConfig(rate, 2)
+			cfg.MaxProcessingRate = maxRate
+			cfg.HPF.Enabled = true
+			cfg.AEC.Enabled = true
+			cfg.NS.Enabled = true
+			cfg.AGC.Enabled = true
+			proc, err := New(cfg)
+			require.NoError(t, err)
 
-		far, near := NewFrame(rate, 2), NewFrame(rate, 2)
-		process := func() {
-			_ = proc.ProcessReverseStream(far)
-			_ = proc.ProcessStream(near)
+			far, near := NewFrame(rate, 2), NewFrame(rate, 2)
+			process := func() {
+				_ = proc.ProcessReverseStream(far)
+				_ = proc.ProcessStream(near)
+			}
+			for range 10 {
+				process()
+			}
+			assert.Zero(t, testing.AllocsPerRun(100, process), "rate %d, max %d", rate, maxRate)
 		}
-		for range 10 {
-			process()
-		}
-		assert.Zero(t, testing.AllocsPerRun(100, process), "rate %d", rate)
 	}
 }
 
@@ -306,4 +309,18 @@ func TestProcessor_8kHzAEC(t *testing.T) {
 	}
 	erleDB := 10 * math.Log10(echoEnergy/residualEnergy)
 	assert.Greater(t, erleDB, 15.0)
+}
+
+func TestNew_NormalizesMaxProcessingRate(t *testing.T) {
+	for _, tc := range []struct{ in, want SampleRate }{
+		{0, Rate48k},
+		{Rate16k, Rate48k},
+		{Rate32k, Rate32k},
+		{Rate48k, Rate48k},
+	} {
+		proc, err := New(Config{SampleRate: Rate48k, NumChannels: 1, MaxProcessingRate: tc.in})
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, proc.Config().MaxProcessingRate, "max %d", tc.in)
+	}
+	assert.Equal(t, Rate32k, DefaultConfig(Rate48k, 1).MaxProcessingRate)
 }
