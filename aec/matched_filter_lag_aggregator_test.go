@@ -139,3 +139,27 @@ func TestGetDownSamplingBlockSizeLog2(t *testing.T) {
 	assert.Equal(t, 3, getDownSamplingBlockSizeLog2(8))
 	assert.Equal(t, 0, getDownSamplingBlockSizeLog2(128))
 }
+
+// Port of
+// MatchedFilterLagAggregator.LagEstimateInvarianceRequiredForAggregatedLag:
+// varying lag estimates are not deemed reliable.
+func TestMatchedFilterLagAggregator_LagEstimateInvarianceRequiredForAggregatedLag(t *testing.T) {
+	const numLagsBeforeDetection = 26
+	aggregator := newMatchedFilterLagAggregator(100, defaultDelayConfig())
+
+	ok := false
+	for range numLagsBeforeDetection {
+		_, ok = aggregator.aggregate(lagEstimate{lag: 10, preEchoLag: 10}, true)
+	}
+	assert.True(t, ok)
+
+	for k := range numLagsBeforeDetection * 100 {
+		_, ok = aggregator.aggregate(lagEstimate{lag: k % 100, preEchoLag: k % 100}, true)
+	}
+	assert.False(t, ok)
+
+	for k := range numLagsBeforeDetection * 100 {
+		_, ok = aggregator.aggregate(lagEstimate{lag: k % 100, preEchoLag: k % 100}, true)
+		assert.False(t, ok)
+	}
+}

@@ -87,3 +87,85 @@ func TestEchoPathDelayEstimator_MatchesUpstream(t *testing.T) {
 		assert.Equal(t, reference[key], results, key)
 	}
 }
+
+// Port of EchoPathDelayEstimatorMultiChannel.BasicApiCalls.
+func TestEchoPathDelayEstimator_BasicAPICalls(t *testing.T) {
+	const sampleRateHz = 48000
+	for _, numRenderChannels := range []int{1, 2, 3, 6, 8} {
+		for _, numCaptureChannels := range []int{1, 2, 4} {
+			config := defaultEchoCanceller3Config()
+			renderDelayBuffer := newRenderDelayBufferImpl(config, sampleRateHz, numRenderChannels)
+			estimator := newEchoPathDelayEstimator(config.delay, config.renderLevels, numCaptureChannels)
+			render := newBlock(numBandsForRate(sampleRateHz), numRenderChannels)
+			capture := newBlock(1, numCaptureChannels)
+			for range 100 {
+				renderDelayBuffer.insert(render)
+				estimator.estimateDelay(renderDelayBuffer.getDownsampledRenderBuffer(), capture)
+			}
+		}
+	}
+}
+
+// Port of EchoPathDelayEstimator.DelayEstimation: the delay estimator
+// produces the correct delay for artificially delayed signals.
+func TestEchoPathDelayEstimator_DelayEstimation(t *testing.T) {
+	const sampleRateHz = 48000
+	random := newTestRandom(42)
+	render := newBlock(numBandsForRate(sampleRateHz), 1)
+	capture := newBlock(1, 1)
+	for _, downSamplingFactor := range []int{4, 8} {
+		config := defaultEchoCanceller3Config()
+		config.delay.delayHeadroomSamples = 0
+		config.delay.downSamplingFactor = downSamplingFactor
+		config.delay.numFilters = 10
+		for _, delaySamples := range []int{30, 64, 150, 200, 800, 4000} {
+			renderDelayBuffer := newRenderDelayBufferImpl(config, sampleRateHz, 1)
+			signalDelayBuffer := newTestDelayBuffer(delaySamples)
+			estimator := newEchoPathDelayEstimator(config.delay, config.renderLevels, 1)
+
+			var estimatedDelaySamples delayEstimate
+			found := false
+			for k := range 500 + delaySamples/kBlockSize {
+				randomizeSampleVector(random, render.view(0, 0))
+				signalDelayBuffer.delay(render.view(0, 0), capture.view(0, 0))
+				renderDelayBuffer.insert(render)
+				if k == 0 {
+					renderDelayBuffer.reset()
+				}
+				renderDelayBuffer.prepareCaptureProcessing()
+				if estimate, ok := estimator.estimateDelay(renderDelayBuffer.getDownsampledRenderBuffer(), capture); ok {
+					estimatedDelaySamples, found = estimate, true
+				}
+			}
+
+			require.True(t, found, "delay %d, factor %d", delaySamples, downSamplingFactor)
+			// Allow the estimated delay to be off by a block as internally
+			// the delay is quantized with an error up to a block.
+			assert.InDelta(t, delaySamples/downSamplingFactor, estimatedDelaySamples.delay/downSamplingFactor,
+				float64(kBlockSize/downSamplingFactor), "delay %d, factor %d", delaySamples, downSamplingFactor)
+		}
+	}
+}
+
+// Port of EchoPathDelayEstimator.NoDelayEstimatesForLowLevelRenderSignals.
+func TestEchoPathDelayEstimator_NoDelayEstimatesForLowLevelRenderSignals(t *testing.T) {
+	const sampleRateHz = 48000
+	random := newTestRandom(42)
+	config := defaultEchoCanceller3Config()
+	render := newBlock(numBandsForRate(sampleRateHz), 1)
+	capture := newBlock(1, 1)
+	estimator := newEchoPathDelayEstimator(config.delay, config.renderLevels, 1)
+	renderDelayBuffer := newRenderDelayBufferImpl(config, sampleRateHz, 1)
+
+	for range 100 {
+		randomizeSampleVector(random, render.view(0, 0))
+		for i := range render.view(0, 0) {
+			render.view(0, 0)[i] *= 100.0 / 32767.0
+		}
+		copy(capture.view(0, 0), render.view(0, 0))
+		renderDelayBuffer.insert(render)
+		renderDelayBuffer.prepareCaptureProcessing()
+		_, ok := estimator.estimateDelay(renderDelayBuffer.getDownsampledRenderBuffer(), capture)
+		assert.False(t, ok)
+	}
+}
