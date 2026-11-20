@@ -31,7 +31,11 @@ func (r *testRandom) randFloat() float32 {
 // randomizeSampleVector mirrors RandomizeSampleVector with the default
 // amplitude.
 func randomizeSampleVector(random *testRandom, v []float32) {
-	const amplitude = 32767
+	randomizeSampleVectorAmplitude(random, v, 32767)
+}
+
+// randomizeSampleVectorAmplitude mirrors RandomizeSampleVector.
+func randomizeSampleVectorAmplitude(random *testRandom, v []float32, amplitude float32) {
 	for i := range v {
 		v[i] = 2*amplitude*random.randFloat() - amplitude
 	}

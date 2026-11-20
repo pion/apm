@@ -38,7 +38,7 @@ func newSubtractor(maxPartitions int) *subtractor {
 		fft:     newAec3Fft(),
 		filter:  newAdaptiveFirFilter(maxPartitions, maxPartitions, cfg.configChangeDurationBlocks, 1),
 		gain:    newCoarseFilterUpdateGain(cfg.coarse, cfg.configChangeDurationBlocks),
-		rsa:     newRenderSignalAnalyzer(),
+		rsa:     newRenderSignalAnalyzer(defaultEchoCanceller3Config()),
 		impulse: make([]float32, getTimeDomainLength(maxPartitions)),
 	}
 }
