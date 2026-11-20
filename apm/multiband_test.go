@@ -208,3 +208,41 @@ func TestProcessor_SkipsBandSplitWhenUnused(t *testing.T) {
 		}
 	}
 }
+
+// The noise suppressor also attenuates stationary content above the
+// lowest band: here a steady tone on top of white noise.
+func TestProcessor_NSSuppressesUpperBands(t *testing.T) {
+	for _, tc := range []struct {
+		rate   SampleRate
+		toneHz float64
+	}{{Rate32k, 12000}, {Rate48k, 20000}} {
+		cfg := DefaultConfig(tc.rate, 1)
+		cfg.NS = NSConfig{Enabled: true, Level: NSHigh}
+		proc, err := New(cfg)
+		require.NoError(t, err)
+
+		rng := rand.New(rand.NewPCG(5, 0)) //nolint:gosec // Deterministic test signal.
+		var inEnergy, outEnergy float64
+		spf := tc.rate.SamplesPerFrame()
+		for i := range 200 {
+			frame := NewFrame(tc.rate, 1)
+			tone := make([]float64, spf)
+			for j := range frame.Data[0] {
+				tone[j] = 0.01 * math.Sin(2*math.Pi*tc.toneHz*float64(i*spf+j)/float64(tc.rate))
+				frame.Data[0][j] = float32(tone[j] + rng.NormFloat64()*0.01)
+			}
+			require.NoError(t, proc.ProcessStream(frame))
+			if i < 100 {
+				continue
+			}
+			// Without upper band suppression the tone alone keeps the
+			// output at or above its own energy.
+			for j := range tone {
+				inEnergy += tone[j] * tone[j]
+				outEnergy += float64(frame.Data[0][j]) * float64(frame.Data[0][j])
+			}
+		}
+		gainDB := 10 * math.Log10(outEnergy/inEnergy)
+		assert.Less(t, gainDB, -6.0, "rate %d: output energy over tone energy", tc.rate)
+	}
+}

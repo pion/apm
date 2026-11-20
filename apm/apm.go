@@ -149,7 +149,7 @@ func (p *Processor) initModules() error {
 		p.hpf = f
 	}
 	if cfg.NS.Enabled {
-		s, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, bandRate, cfg.NumChannels)
+		s, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, int(cfg.SampleRate), cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: ns: %w", err)
 		}
@@ -209,21 +209,22 @@ func (p *Processor) ProcessStream(near *Frame) error {
 // signal itself at 16 kHz, on its lowest band at 32 and 48 kHz.
 func (p *Processor) processBands(data [][]float32) error {
 	if p.splitCapture == nil {
-		return p.processInner(data)
+		return p.processInner(data, nil)
 	}
 	if err := p.splitCapture.Analysis(data, p.captureBands); err != nil {
 		return err
 	}
-	if err := p.processInner(p.captureBands[0]); err != nil {
+	if err := p.processInner(p.captureBands[0], p.captureBands[1:]); err != nil {
 		return err
 	}
 
 	return p.splitCapture.Synthesis(p.captureBands, data)
 }
 
-// processInner runs the band modules on 16 kHz buffers: the whole signal
-// at 16 kHz, its lowest band at 32 and 48 kHz.
-func (p *Processor) processInner(channels [][]float32) error {
+// processInner runs the band modules. channels is the 16 kHz band: the
+// whole signal at 16 kHz, its lowest band at 32 and 48 kHz. upperBands
+// holds the bands above it.
+func (p *Processor) processInner(channels [][]float32, upperBands [][][]float32) error {
 	// Upstream analyzes the noise before the echo canceller changes the
 	// signal.
 	if p.ns != nil {
@@ -237,7 +238,7 @@ func (p *Processor) processInner(channels [][]float32) error {
 		}
 	}
 	if p.ns != nil {
-		return p.ns.Process(channels)
+		return p.ns.Process(channels, upperBands...)
 	}
 
 	return nil
