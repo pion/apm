@@ -4,13 +4,10 @@
 package ns
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,29 +26,15 @@ type referenceFrame struct {
 
 func loadReference(t *testing.T) []referenceFrame {
 	t.Helper()
-	file, err := os.Open("testdata/upstream.txt")
-	require.NoError(t, err)
-	defer func() { assert.NoError(t, file.Close()) }()
 
 	var frames []referenceFrame
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(nil, 1<<20)
-	for scanner.Scan() {
-		header, samples, found := strings.Cut(scanner.Text(), ":")
-		require.True(t, found)
-
-		var ref referenceFrame
-		_, err = fmt.Sscan(header, &ref.rate, &ref.channels, &ref.level, &ref.frame, &ref.channel, &ref.band)
+	for _, entry := range refdata.Load(t, "testdata/upstream.txt") {
+		ref := referenceFrame{samples: entry.Samples}
+		_, err := fmt.Sscan(entry.Key, &ref.rate, &ref.channels, &ref.level, &ref.frame, &ref.channel, &ref.band)
 		require.NoError(t, err)
-		for field := range strings.FieldsSeq(samples) {
-			value, err := strconv.ParseFloat(field, 32)
-			require.NoError(t, err)
-			ref.samples = append(ref.samples, float32(value))
-		}
 		require.Len(t, ref.samples, nsFrameSize)
 		frames = append(frames, ref)
 	}
-	require.NoError(t, scanner.Err())
 
 	return frames
 }

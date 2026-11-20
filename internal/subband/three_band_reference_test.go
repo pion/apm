@@ -4,52 +4,26 @@
 package subband
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // threeBandReferenceDelta allows for fused multiply-add on some
 // architectures. Samples are on the int16 scale.
 const threeBandReferenceDelta = 0.01
 
-// loadThreeBandReference reads testdata/three_band_upstream.txt. Each
-// line reads "name frame: samples" and is keyed by "name frame".
-func loadThreeBandReference(t *testing.T) map[string][]float32 {
-	t.Helper()
-	file, err := os.Open("testdata/three_band_upstream.txt")
-	require.NoError(t, err)
-	defer func() { assert.NoError(t, file.Close()) }()
-
-	reference := map[string][]float32{}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(nil, 1<<20)
-	for scanner.Scan() {
-		key, samples, found := strings.Cut(scanner.Text(), ":")
-		require.True(t, found)
-		for field := range strings.FieldsSeq(samples) {
-			value, err := strconv.ParseFloat(field, 32)
-			require.NoError(t, err)
-			reference[key] = append(reference[key], float32(value))
-		}
-	}
-	require.NoError(t, scanner.Err())
-
-	return reference
-}
-
 // TestThreeBand_MatchesUpstream compares the bands and the reconstructed
 // signal with the output of the upstream ThreeBandFilterBank at the
 // pinned commit, fed the same generated noise.
 func TestThreeBand_MatchesUpstream(t *testing.T) {
-	reference := loadThreeBandReference(t)
-	require.NotEmpty(t, reference)
+	// Each line of the reference file is keyed by "name frame".
+	reference := map[string][]float32{}
+	for _, entry := range refdata.Load(t, "testdata/three_band_upstream.txt") {
+		reference[entry.Key] = entry.Samples
+	}
 
 	bank := NewThreeBandFilterBank()
 	in := make([]float32, ThreeBandFullBandSize)
