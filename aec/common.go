@@ -18,7 +18,8 @@ const (
 	kFftLengthBy2Plus1 = kFftLengthBy2 + 1
 	kFftLength         = 2 * kFftLengthBy2
 
-	kFrameSize = 160
+	kFrameSize      = 160
+	kSubFrameLength = kFrameSize / 2
 
 	kBlockSize = kFftLengthBy2
 
