@@ -36,7 +36,10 @@ const (
 )
 
 func newErleScenario(numRender, numCapture int) *erleScenario {
-	config := defaultEchoCanceller3Config()
+	return newErleScenarioWithConfig(defaultEchoCanceller3Config(), numRender, numCapture)
+}
+
+func newErleScenarioWithConfig(config echoCanceller3Config, numRender, numCapture int) *erleScenario {
 	scenario := &erleScenario{
 		numRender:         numRender,
 		numCapture:        numCapture,
@@ -136,3 +139,5 @@ func erleScenarioDumpsSpectra(index int) bool {
 	return index%50 == 49 || (index >= 200 && index < 220 && index%4 == 0) ||
 		(index >= 690 && index < 760 && index%5 == 0) || (index >= 1000 && index < 1120 && index%10 == 0)
 }
+
+func (s *erleScenario) renderBuffer() *renderBuffer { return s.renderDelayBuffer.getRenderBuffer() }
