@@ -12,23 +12,33 @@ import "fmt"
 type echoCanceller struct {
 	renderDelay *renderDelayBuffer
 	sub         *subtractor
+	analyzer    *renderSignalAnalyzer
 
 	renderBlocker  frameBlocker
 	captureBlocker frameBlocker
 	outputFramer   *blockFramer
 
-	block     [kBlockSize]float32
-	subOutput subtractorOutput
+	block        [kBlockSize]float32
+	captureBlock *block
+	subOutput    [1]subtractorOutput
 }
 
 // newEchoCanceller constructs the canceller. filterLengthBlocks sets the
 // adaptive filter length in 64-sample partitions (13 ≈ 52 ms at 16 kHz,
 // the upstream default for the refined filter).
 func newEchoCanceller(filterLengthBlocks int) *echoCanceller {
+	config := defaultEchoCanceller3Config()
+	config.filter.refined.lengthBlocks = filterLengthBlocks
+	config.filter.coarse.lengthBlocks = filterLengthBlocks
+	config.filter.refinedInitial.lengthBlocks = min(config.filter.refinedInitial.lengthBlocks, filterLengthBlocks)
+	config.filter.coarseInitial.lengthBlocks = min(config.filter.coarseInitial.lengthBlocks, filterLengthBlocks)
+
 	return &echoCanceller{
 		renderDelay:  newRenderDelayBuffer(filterLengthBlocks),
-		sub:          newSubtractor(filterLengthBlocks),
+		sub:          newSubtractor(config, 1, 1),
+		analyzer:     newRenderSignalAnalyzer(config),
 		outputFramer: newBlockFramer(),
+		captureBlock: newBlock(1, 1),
 	}
 }
 
@@ -80,14 +90,15 @@ func (e *echoCanceller) processBlock(block []float32) {
 	// Advance render-side read position so the filter sees the most
 	// recent inserted block first.
 	e.renderDelay.step()
-	e.sub.process(e.renderDelay.renderBuffer(), block, &e.subOutput)
-	copy(block, e.subOutput.eRefined[:])
+	copy(e.captureBlock.view(0, 0), block)
+	e.sub.process(e.renderDelay.renderBuffer(), e.captureBlock, e.analyzer, false, e.subOutput[:])
+	copy(block, e.subOutput[0].eRefined[:])
 }
 
 // HandleEchoPathChange resets adaptation state.
 func (e *echoCanceller) HandleEchoPathChange() {
 	e.renderDelay.reset()
-	e.sub.handleEchoPathChange()
+	e.sub.handleEchoPathChange(echoPathVariability{delayChange: delayAdjustmentNewDetectedDelay})
 	e.renderBlocker.reset()
 	e.captureBlocker.reset()
 	e.outputFramer.reset()

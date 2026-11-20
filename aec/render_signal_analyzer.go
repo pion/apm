@@ -50,6 +50,8 @@ func newRenderSignalAnalyzer(config echoCanceller3Config) *renderSignalAnalyzer 
 
 // update mirrors Update: it updates the render signal analysis with the
 // most recent render signal.
+//
+//nolint:unparam // The delay comes from AecState, which is not ported yet.
 func (r *renderSignalAnalyzer) update(render *renderBuffer, delayPartitions int, hasDelayPartitions bool) {
 	// Identify bands of narrow nature.
 	identifySmallNarrowBandRegions(render, delayPartitions, hasDelayPartitions, &r.narrowBandCounters)
