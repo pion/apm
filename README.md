@@ -18,6 +18,25 @@
 A pure Go port of the WebRTC Audio Processing Module: echo cancellation (AEC3),
 noise suppression, automatic gain control (AGC2) and high-pass filtering.
 
+### Usage
+```go
+cfg := apm.DefaultConfig(apm.Rate48k, 1)
+cfg.AEC.Enabled = true
+cfg.NS = apm.NSConfig{Enabled: true, Level: apm.NSModerate}
+
+proc, err := apm.New(cfg)
+if err != nil {
+	return err
+}
+
+// For every 10 ms frame:
+_ = proc.ProcessReverseStream(farEnd) // audio sent to the speaker
+_ = proc.ProcessStream(nearEnd)       // microphone audio, processed in place
+```
+
+Supported rates are 8, 16, 32 and 48 kHz. At 32 and 48 kHz the modules run on
+the lowest 16 kHz band.
+
 ### Roadmap
 The library is used as a part of our WebRTC implementation. Please refer to that [roadmap](https://github.com/pion/webrtc/issues/9) to track our major milestones.
 
