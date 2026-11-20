@@ -21,7 +21,10 @@ const (
 	kFrameSize      = 160
 	kSubFrameLength = kFrameSize / 2
 
-	kBlockSize = kFftLengthBy2
+	kBlockSize     = kFftLengthBy2
+	kBlockSizeLog2 = 6
+
+	kNumBlocksPerSecond = 250
 
 	kMatchedFilterWindowSizeSubBlocks         = 32
 	kMatchedFilterAlignmentShiftSizeSubBlocks = kMatchedFilterWindowSizeSubBlocks * 3 / 4
