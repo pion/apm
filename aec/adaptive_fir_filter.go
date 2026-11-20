@@ -6,6 +6,23 @@ package aec
 
 // Helpers ported from adaptive_fir_filter.cc: the _C variants only.
 
+// computeFrequencyResponse matches ComputeFrequencyResponse_C: it computes
+// the frequency response of the filter, as the maximum over the render
+// channels.
+func computeFrequencyResponse(numPartitions int, partitions [][]fftData, h2 [][kFftLengthBy2Plus1]float32) {
+	for p := range h2 {
+		h2[p] = [kFftLengthBy2Plus1]float32{}
+	}
+	for p := range numPartitions {
+		for ch := range partitions[p] {
+			part := &partitions[p][ch]
+			for j := range kFftLengthBy2Plus1 {
+				h2[p][j] = max(h2[p][j], part.re[j]*part.re[j]+part.im[j]*part.im[j])
+			}
+		}
+	}
+}
+
 // adaptPartitions implements H(t+1) = H(t) + conj(X(t)) * G(t), with H the
 // partitions, X the render spectra and G the gain.
 // Mirrors AdaptPartitions (the _C variant).
@@ -142,12 +159,85 @@ func (f *adaptiveFirFilter) filter(rb *renderBuffer, echo *fftData) {
 	applyFilter(rb, f.currentSizePartitions, f.H, echo)
 }
 
-// adaptUpdateImpulse adapts the filter using gain and also updates an
-// externally stored time-domain impulse response.
+// adapt mirrors Adapt(render_buffer, G): it adapts the filter.
+func (f *adaptiveFirFilter) adapt(rb *renderBuffer, gain *fftData) {
+	f.adaptAndUpdateSize(rb, gain)
+
+	// Constrain the filter partitions in a cyclic manner.
+	f.constrain()
+}
+
+// adaptUpdateImpulse mirrors Adapt(render_buffer, G, impulse_response): it
+// adapts the filter and updates an externally stored impulse response
+// estimate.
 func (f *adaptiveFirFilter) adaptUpdateImpulse(rb *renderBuffer, gain *fftData, impulseResponse *[]float32) {
+	f.adaptAndUpdateSize(rb, gain)
+
+	// Constrain the filter partitions in a cyclic manner.
+	f.constrainAndUpdateImpulseResponse(impulseResponse)
+}
+
+// adaptAndUpdateSize adapts the filter and updates the filter size.
+func (f *adaptiveFirFilter) adaptAndUpdateSize(rb *renderBuffer, gain *fftData) {
 	f.updateSize()
 	adaptPartitions(rb, gain, f.currentSizePartitions, f.H)
-	f.constrainAndUpdateImpulseResponse(impulseResponse)
+}
+
+// computeFrequencyResponse mirrors ComputeFrequencyResponse. It returns
+// h2 resized to the current number of partitions; h2 must have the
+// capacity of the maximum filter size.
+func (f *adaptiveFirFilter) computeFrequencyResponse(h2 [][kFftLengthBy2Plus1]float32) [][kFftLengthBy2Plus1]float32 {
+	h2 = h2[:f.currentSizePartitions]
+	computeFrequencyResponse(f.currentSizePartitions, f.H, h2)
+
+	return h2
+}
+
+// maxFilterSizePartitions mirrors max_filter_size_partitions.
+func (f *adaptiveFirFilter) maxFilterSizePartitions() int { return f.maxSizePartitions }
+
+// scaleFilter mirrors ScaleFilter.
+func (f *adaptiveFirFilter) scaleFilter(factor float32) {
+	for p := range f.H {
+		for ch := range f.H[p] {
+			part := &f.H[p][ch]
+			for k := range kFftLengthBy2Plus1 {
+				part.re[k] *= factor
+				part.im[k] *= factor
+			}
+		}
+	}
+}
+
+// setFilter mirrors SetFilter: it sets the filter coefficients.
+func (f *adaptiveFirFilter) setFilter(numPartitions int, partitions [][]fftData) {
+	for p := range min(f.currentSizePartitions, numPartitions) {
+		copy(f.H[p], partitions[p])
+	}
+}
+
+// getFilter mirrors GetFilter.
+func (f *adaptiveFirFilter) getFilter() [][]fftData { return f.H }
+
+// constrain constrains a partition of the frequency domain filter to be
+// limited in time, by zeroing the relevant time-domain coefficients.
+func (f *adaptiveFirFilter) constrain() {
+	var taps [kFftLength]float32
+	for ch := range f.numRenderChannels {
+		f.fft.inv(&f.H[f.partitionToConstrain][ch], &taps)
+		const scale = 1.0 / float32(kFftLengthBy2)
+		for i := range kFftLengthBy2 {
+			taps[i] *= scale
+		}
+		clear(taps[kFftLengthBy2:])
+		f.fft.fwd(&taps, &f.H[f.partitionToConstrain][ch])
+	}
+
+	if f.partitionToConstrain < f.currentSizePartitions-1 {
+		f.partitionToConstrain++
+	} else {
+		f.partitionToConstrain = 0
+	}
 }
 
 // constrainAndUpdateImpulseResponse forces the time-domain taps of one
