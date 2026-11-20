@@ -84,21 +84,25 @@ func newAec3Fft() *aec3Fft {
 	return &aec3Fft{plan: fft.New(kFftLength)}
 }
 
-// fwd computes the forward FFT of a 128-sample time array and unpacks
-// into a fftData. Mirrors Aec3Fft::Fft.
+// fwd mirrors Aec3Fft::Fft. Like the Ooura FFT upstream, the imaginary
+// part has the opposite sign of the usual DFT.
 func (a *aec3Fft) fwd(x *[kFftLength]float32, out *fftData) {
 	a.plan.Forward(x[:], out.re[:], out.im[:])
+	for k := 1; k < kFftLengthBy2; k++ {
+		out.im[k] = -out.im[k]
+	}
 	out.im[0] = 0
 	out.im[kFftLengthBy2] = 0
 }
 
-// inv computes the inverse FFT into a 128-sample time array. Mirrors
-// Aec3Fft::Ifft which leaves the result unnormalized (Ooura convention,
-// equal to (N/2)*true_inverse). Callers downstream typically multiply by
-// 1/kFftLengthBy2 (= 2/N) to recover the true inverse: preserving that
-// convention lets upstream code translate verbatim.
+// inv mirrors Aec3Fft::Ifft. Like the Ooura FFT upstream, the result is
+// kFftLengthBy2 times the input of fwd.
 func (a *aec3Fft) inv(in *fftData, x *[kFftLength]float32) {
-	a.plan.Inverse(in.re[:], in.im[:], x[:])
+	var im [kFftLengthBy2Plus1]float32
+	for k := 1; k < kFftLengthBy2; k++ {
+		im[k] = -in.im[k]
+	}
+	a.plan.Inverse(in.re[:], im[:], x[:])
 	const scale = float32(kFftLengthBy2)
 	for i := range x {
 		x[i] *= scale
