@@ -34,8 +34,8 @@ _ = proc.ProcessReverseStream(farEnd) // audio sent to the speaker
 _ = proc.ProcessStream(nearEnd)       // microphone audio, processed in place
 ```
 
-Supported rates are 16, 32 and 48 kHz. At 32 and 48 kHz the modules run on
-the lowest 16 kHz band.
+Supported rates are 16, 32 and 48 kHz. At 32 and 48 kHz the echo canceller
+only works on the lowest 16 kHz band.
 
 ### Roadmap
 The library is used as a part of our WebRTC implementation. Please refer to that [roadmap](https://github.com/pion/webrtc/issues/9) to track our major milestones.
