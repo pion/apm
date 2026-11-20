@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+# Noise corpus manifest.
+# Source: DEMAND "Diverse Environments Multichannel Acoustic Noise Database"
+# (CC-BY-SA 3.0). https://zenodo.org/record/1227121
+
+files: []
+#  - name: smoke/demand_cafe_short.wav
+#    duration_s: 5.0
+#    notes: PCAFETER subset, mono mixdown

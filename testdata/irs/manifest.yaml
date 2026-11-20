@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+# Room-impulse-response corpus manifest.
+# Source: OpenAIR (https://www.openair.hosted.york.ac.uk/, CC licenses
+# vary per IR; check before redistribution) and Aachen RIR database.
+
+files: []
+#  - name: smoke/openair_livingroom_short.wav
+#    duration_s: 0.8
+#    notes: small living room, RT60 ~150 ms
