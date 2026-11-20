@@ -111,3 +111,38 @@ func runEchoPath(t *testing.T, proc *Processor, far, mic []float32) []float32 {
 
 	return out
 }
+
+// The gain controller runs on the full band, so it also amplifies a tone
+// that sits in the upper bands.
+func TestProcessor_AGCAppliesGainToUpperBands(t *testing.T) {
+	for _, tc := range []struct {
+		rate   SampleRate
+		toneHz float64
+	}{{Rate32k, 12000}, {Rate48k, 20000}} {
+		cfg := DefaultConfig(tc.rate, 1)
+		cfg.AGC = AGCConfig{Enabled: true, CompressionGain: 6}
+		proc, err := New(cfg)
+		require.NoError(t, err)
+
+		var inEnergy, outEnergy float64
+		spf := tc.rate.SamplesPerFrame()
+		for i := range 50 {
+			frame := NewFrame(tc.rate, 1)
+			for j := range frame.Data[0] {
+				phase := 2 * math.Pi * tc.toneHz * float64(i*spf+j) / float64(tc.rate)
+				frame.Data[0][j] = float32(0.01 * math.Sin(phase))
+			}
+			in := append([]float32(nil), frame.Data[0]...)
+			require.NoError(t, proc.ProcessStream(frame))
+			if i < 10 {
+				continue
+			}
+			for j := range in {
+				inEnergy += float64(in[j]) * float64(in[j])
+				outEnergy += float64(frame.Data[0][j]) * float64(frame.Data[0][j])
+			}
+		}
+		gainDB := 10 * math.Log10(outEnergy/inEnergy)
+		assert.InDelta(t, 6.0, gainDB, 1.0, "rate %d", tc.rate)
+	}
+}

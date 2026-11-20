@@ -150,7 +150,9 @@ func (p *Processor) initModules(innerRate int) error {
 		p.ns = s
 	}
 	if cfg.AGC.Enabled {
-		c, err := agc.New(agc.Config{FixedDigitalGainDB: cfg.AGC.CompressionGain}, innerRate, cfg.NumChannels)
+		// Upstream runs GainController2 on the full band, after the bands
+		// are merged.
+		c, err := agc.New(agc.Config{FixedDigitalGainDB: cfg.AGC.CompressionGain}, int(cfg.SampleRate), cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: agc: %w", err)
 		}
@@ -182,20 +184,30 @@ func (p *Processor) ProcessStream(near *Frame) error {
 	scaleUp(near.Data)
 	defer scaleDown(near.Data)
 
-	if p.splitCapture == nil {
-		// Single-band fast path (16 kHz native).
-		return p.processInner(near.Data)
+	if err := p.processBands(near.Data); err != nil {
+		return err
+	}
+	if p.agc != nil {
+		return p.agc.Process(near.Data)
 	}
 
-	// Multi-band path: split → process band 0 → synthesize.
-	if err := p.splitCapture.Analysis(near.Data, p.captureBands); err != nil {
+	return nil
+}
+
+// processBands runs the modules that work on the 16 kHz band: on the
+// signal itself at 16 kHz, on its lowest band at 32 and 48 kHz.
+func (p *Processor) processBands(data [][]float32) error {
+	if p.splitCapture == nil {
+		return p.processInner(data)
+	}
+	if err := p.splitCapture.Analysis(data, p.captureBands); err != nil {
 		return err
 	}
 	if err := p.processInner(p.captureBands[0]); err != nil {
 		return err
 	}
 
-	return p.splitCapture.Synthesis(p.captureBands, near.Data)
+	return p.splitCapture.Synthesis(p.captureBands, data)
 }
 
 // processInner runs the per-module pipeline at the inner (16 kHz) rate
@@ -217,11 +229,6 @@ func (p *Processor) processInner(channels [][]float32) error {
 			return err
 		}
 		if err := p.ns.Process(channels); err != nil {
-			return err
-		}
-	}
-	if p.agc != nil {
-		if err := p.agc.Process(channels); err != nil {
 			return err
 		}
 	}
