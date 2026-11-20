@@ -31,6 +31,9 @@ var (
 )
 
 const (
+	// maxSplittingRate matches the default of upstream's
+	// maximum_internal_processing_rate, in Hz.
+	maxSplittingRate = 48000
 	// bandRate is the sample rate of one band, in Hz. A 16 kHz stream is
 	// a single band.
 	bandRate = 16000
@@ -42,6 +45,9 @@ const (
 // Not safe for concurrent use.
 type Processor struct {
 	cfg Config
+	// procRate is the rate the modules run at: the stream rate, or
+	// 16 kHz for an 8 kHz stream.
+	procRate SampleRate
 
 	hpf *hpf.Filter
 	ns  *ns.Suppressor
@@ -55,7 +61,14 @@ type Processor struct {
 	captureBands [][][]float32 // [band][channel][sample]; allocated once at New()
 	renderBands  [][][]float32
 
-	// Render stream at the capture rate, for the echo canceller. The
+	// Capture stream at the processing rate, with the resamplers to and
+	// from it. All nil unless the stream rate differs and a module is
+	// enabled.
+	captureBuffer       [][]float32
+	captureResampler    *rateConverter
+	captureOutResampler *rateConverter
+
+	// Render stream at the processing rate, for the echo canceller. The
 	// resampler is non-nil when the reverse rate differs.
 	renderBuffer    [][]float32
 	renderResampler *rateConverter
@@ -68,16 +81,16 @@ func New(cfg Config) (*Processor, error) {
 		return nil, err
 	}
 
-	proc := &Processor{cfg: cfg}
-
 	// Like upstream, split the capture signal only when a module that
 	// works on the bands is enabled, and the render signal only for the
 	// echo canceller.
-	if cfg.HPF.Enabled || cfg.NS.Enabled || cfg.AEC.Enabled {
-		proc.splitCapture, proc.captureBands, err = newSplitter(cfg.SampleRate, cfg.NumChannels)
-		if err != nil {
-			return nil, fmt.Errorf("apm: splitting filter: %w", err)
-		}
+	bandModules := cfg.HPF.Enabled || cfg.NS.Enabled || cfg.AEC.Enabled
+	proc := &Processor{
+		cfg:      cfg,
+		procRate: SampleRate(suitableProcessRate(int(cfg.SampleRate), maxSplittingRate, bandModules)),
+	}
+	if err := proc.initCapture(bandModules); err != nil {
+		return nil, err
 	}
 	if cfg.AEC.Enabled {
 		if err := proc.initRender(); err != nil {
@@ -121,20 +134,47 @@ func resolveConfig(cfg Config) (Config, error) {
 	return cfg, nil
 }
 
-// initRender sets up the render path of the echo canceller. Like upstream,
-// the render stream is processed at the capture rate.
-func (p *Processor) initRender() error {
+// initCapture sets up the band split of the capture stream and, when a
+// module runs at another rate than the stream, its conversion to the
+// processing rate and back.
+func (p *Processor) initCapture(bandModules bool) error {
 	cfg := p.cfg
-	p.renderBuffer = allocChannels(cfg.ReverseNumChannels, cfg.SampleRate.SamplesPerFrame())
 
 	var err error
-	if cfg.ReverseSampleRate != cfg.SampleRate {
-		p.renderResampler, err = newRateConverter(cfg.ReverseSampleRate, cfg.SampleRate, cfg.ReverseNumChannels)
+	if bandModules {
+		p.splitCapture, p.captureBands, err = newSplitter(p.procRate, cfg.NumChannels)
+		if err != nil {
+			return fmt.Errorf("apm: splitting filter: %w", err)
+		}
+	}
+	if p.procRate == cfg.SampleRate || (!bandModules && !cfg.AGC.Enabled) {
+		return nil
+	}
+
+	p.captureBuffer = allocChannels(cfg.NumChannels, p.procRate.SamplesPerFrame())
+	p.captureResampler, err = newRateConverter(cfg.SampleRate, p.procRate, cfg.NumChannels)
+	if err != nil {
+		return err
+	}
+	p.captureOutResampler, err = newRateConverter(p.procRate, cfg.SampleRate, cfg.NumChannels)
+
+	return err
+}
+
+// initRender sets up the render path of the echo canceller. Like upstream,
+// the render stream is processed at the capture processing rate.
+func (p *Processor) initRender() error {
+	cfg := p.cfg
+	p.renderBuffer = allocChannels(cfg.ReverseNumChannels, p.procRate.SamplesPerFrame())
+
+	var err error
+	if cfg.ReverseSampleRate != p.procRate {
+		p.renderResampler, err = newRateConverter(cfg.ReverseSampleRate, p.procRate, cfg.ReverseNumChannels)
 		if err != nil {
 			return err
 		}
 	}
-	p.splitRender, p.renderBands, err = newSplitter(cfg.SampleRate, cfg.ReverseNumChannels)
+	p.splitRender, p.renderBands, err = newSplitter(p.procRate, cfg.ReverseNumChannels)
 	if err != nil {
 		return fmt.Errorf("apm: render splitting filter: %w", err)
 	}
@@ -167,14 +207,14 @@ func (p *Processor) initModules() error {
 	cfg := p.cfg
 	if cfg.HPF.Enabled {
 		// Upstream filters the full band by default, before the split.
-		f, err := hpf.New(int(cfg.SampleRate), cfg.NumChannels)
+		f, err := hpf.New(int(p.procRate), cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: hpf: %w", err)
 		}
 		p.hpf = f
 	}
 	if cfg.NS.Enabled {
-		s, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, int(cfg.SampleRate), cfg.NumChannels)
+		s, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, int(p.procRate), cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: ns: %w", err)
 		}
@@ -183,7 +223,7 @@ func (p *Processor) initModules() error {
 	if cfg.AGC.Enabled {
 		// Upstream runs GainController2 on the full band, after the bands
 		// are merged.
-		c, err := agc.New(agc.Config{FixedDigitalGainDB: cfg.AGC.CompressionGain}, int(cfg.SampleRate), cfg.NumChannels)
+		c, err := agc.New(agc.Config{FixedDigitalGainDB: cfg.AGC.CompressionGain}, int(p.procRate), cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: agc: %w", err)
 		}
@@ -212,19 +252,41 @@ func (p *Processor) ProcessStream(near *Frame) error {
 	if err := p.validateFrame(near, p.cfg.SampleRate, p.cfg.NumChannels); err != nil {
 		return err
 	}
-	scaleUp(near.Data)
-	defer scaleDown(near.Data)
 
+	// Like upstream, resample before scaling up and after scaling down.
+	data := near.Data
+	if p.captureResampler != nil {
+		if err := p.captureResampler.convert(near.Data, p.captureBuffer); err != nil {
+			return err
+		}
+		data = p.captureBuffer
+	}
+	scaleUp(data)
+	err := p.processCapture(data)
+	scaleDown(data)
+	if err != nil {
+		return err
+	}
+	if p.captureOutResampler != nil {
+		return p.captureOutResampler.convert(p.captureBuffer, near.Data)
+	}
+
+	return nil
+}
+
+// processCapture runs the modules on a capture frame at the processing
+// rate and on the int16 scale.
+func (p *Processor) processCapture(data [][]float32) error {
 	if p.hpf != nil {
-		if err := p.hpf.Process(near.Data); err != nil {
+		if err := p.hpf.Process(data); err != nil {
 			return err
 		}
 	}
-	if err := p.processBands(near.Data); err != nil {
+	if err := p.processBands(data); err != nil {
 		return err
 	}
 	if p.agc != nil {
-		return p.agc.Process(near.Data)
+		return p.agc.Process(data)
 	}
 
 	return nil

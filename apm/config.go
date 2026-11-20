@@ -8,6 +8,9 @@ package apm
 // near-end (capture) stream; ReverseSampleRate and ReverseNumChannels
 // apply to the far-end (render) stream and default to the capture-side
 // values when zero.
+//
+// The modules run at 16, 32 or 48 kHz. An 8 kHz stream is resampled to
+// 16 kHz and back.
 type Config struct {
 	SampleRate         SampleRate
 	NumChannels        int
@@ -21,7 +24,7 @@ type Config struct {
 }
 
 // HPFConfig controls the high-pass filter: a 3-stage cascaded biquad
-// pre-tuned per sample rate. Supported rates: 16/32/48 kHz.
+// pre-tuned per processing rate.
 type HPFConfig struct {
 	Enabled bool
 }

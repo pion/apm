@@ -10,6 +10,7 @@ import "fmt"
 type SampleRate int
 
 const (
+	Rate8k  SampleRate = 8000
 	Rate16k SampleRate = 16000
 	Rate32k SampleRate = 32000
 	Rate48k SampleRate = 48000
@@ -17,7 +18,7 @@ const (
 
 func (r SampleRate) Valid() bool {
 	switch r {
-	case Rate16k, Rate32k, Rate48k:
+	case Rate8k, Rate16k, Rate32k, Rate48k:
 		return true
 	}
 

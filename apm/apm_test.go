@@ -5,10 +5,14 @@
 package apm
 
 import (
+	"math"
 	"math/rand/v2"
 	"testing"
 
 	"github.com/pion/apm/aec"
+	"github.com/pion/apm/agc"
+	"github.com/pion/apm/hpf"
+	"github.com/pion/apm/internal/resampler"
 	"github.com/pion/apm/ns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +61,7 @@ func TestSamplesPerFrame(t *testing.T) {
 		rate SampleRate
 		want int
 	}{
+		{Rate8k, 80},
 		{Rate16k, 160},
 		{Rate32k, 320},
 		{Rate48k, 480},
@@ -97,7 +102,7 @@ func TestProcessReverseStream_LeavesFrameUnchanged(t *testing.T) {
 }
 
 func TestNew_RejectsUnsupportedSampleRate(t *testing.T) {
-	for _, rate := range []SampleRate{0, 8000, 44100} {
+	for _, rate := range []SampleRate{0, 11025, 44100} {
 		_, err := New(DefaultConfig(rate, 1))
 		assert.ErrorIs(t, err, ErrInvalidSampleRate, "rate %d", rate)
 	}
@@ -105,7 +110,7 @@ func TestNew_RejectsUnsupportedSampleRate(t *testing.T) {
 
 func TestNew_ValidatesReverseStream(t *testing.T) {
 	cfg := DefaultConfig(Rate16k, 1)
-	cfg.ReverseSampleRate = 8000
+	cfg.ReverseSampleRate = 44100
 	_, err := New(cfg)
 	assert.ErrorIs(t, err, ErrInvalidSampleRate)
 
@@ -136,7 +141,7 @@ func TestProcessor_MixedRatesWithAEC(t *testing.T) {
 }
 
 func TestProcessor_ZeroAllocAllModules(t *testing.T) {
-	for _, rate := range []SampleRate{Rate16k, Rate32k, Rate48k} {
+	for _, rate := range []SampleRate{Rate8k, Rate16k, Rate32k, Rate48k} {
 		cfg := DefaultConfig(rate, 2)
 		cfg.HPF.Enabled = true
 		cfg.AEC.Enabled = true
@@ -192,4 +197,113 @@ func TestProcessor_AnalyzesNoiseBeforeEchoCancellation(t *testing.T) {
 		require.NoError(t, proc.ProcessStream(near))
 		require.Equal(t, want[0], near.Data[0], "frame %d", i)
 	}
+}
+
+func TestSuitableProcessRate(t *testing.T) {
+	for _, tc := range []struct {
+		minimumRate, maxSplittingRate int
+		bandSplittingRequired         bool
+		want                          int
+	}{
+		{8000, 48000, true, 16000},
+		{8000, 48000, false, 16000},
+		{16000, 48000, true, 16000},
+		{32000, 48000, true, 32000},
+		{44100, 48000, true, 48000},
+		{48000, 48000, true, 48000},
+		{48000, 32000, true, 32000},
+		{48000, 32000, false, 48000},
+		{44100, 32000, true, 32000},
+		{96000, 48000, false, 48000},
+	} {
+		got := suitableProcessRate(tc.minimumRate, tc.maxSplittingRate, tc.bandSplittingRequired)
+		assert.Equal(t, tc.want, got, "%+v", tc)
+	}
+}
+
+// An 8 kHz stream is processed at 16 kHz: like upstream, it is resampled
+// up before the modules and back down after them.
+func TestProcessor_Resamples8kHzCapture(t *testing.T) {
+	cfg := DefaultConfig(Rate8k, 1)
+	cfg.HPF.Enabled = true
+	cfg.AGC = AGCConfig{Enabled: true, CompressionGain: 6}
+	proc, err := New(cfg)
+	require.NoError(t, err)
+
+	up, err := resampler.NewPushSincResampler(80, 160)
+	require.NoError(t, err)
+	down, err := resampler.NewPushSincResampler(160, 80)
+	require.NoError(t, err)
+	filter, err := hpf.New(16000, 1)
+	require.NoError(t, err)
+	controller, err := agc.New(agc.Config{FixedDigitalGainDB: 6}, 16000, 1)
+	require.NoError(t, err)
+
+	rng := rand.New(rand.NewPCG(17, 0)) //nolint:gosec // Deterministic test signal.
+	for i := range 30 {
+		near := NewFrame(Rate8k, 1)
+		for j := range near.Data[0] {
+			near.Data[0][j] = float32(rng.NormFloat64() * 0.1)
+		}
+
+		buffer := [][]float32{make([]float32, 160)}
+		require.NoError(t, up.Resample(near.Data[0], buffer[0]))
+		scaleUp(buffer)
+		require.NoError(t, filter.Process(buffer))
+		require.NoError(t, controller.Process(buffer))
+		scaleDown(buffer)
+		want := make([]float32, 80)
+		require.NoError(t, down.Resample(buffer[0], want))
+
+		require.NoError(t, proc.ProcessStream(near))
+		require.Equal(t, want, near.Data[0], "frame %d", i)
+	}
+}
+
+// With no module enabled an 8 kHz stream is left untouched, without a
+// resampling round trip.
+func TestProcessor_8kHzPassThrough(t *testing.T) {
+	proc, err := New(DefaultConfig(Rate8k, 1))
+	require.NoError(t, err)
+
+	near := NewFrame(Rate8k, 1)
+	for i := range near.Data[0] {
+		near.Data[0][i] = float32(i)/80 - 0.5
+	}
+	want := append([]float32(nil), near.Data[0]...)
+
+	require.NoError(t, proc.ProcessStream(near))
+	assert.Equal(t, want, near.Data[0])
+}
+
+// The echo canceller removes an 8 kHz echo: both streams are resampled
+// to 16 kHz for it.
+func TestProcessor_8kHzAEC(t *testing.T) {
+	cfg := DefaultConfig(Rate8k, 1)
+	cfg.AEC.Enabled = true
+	proc, err := New(cfg)
+	require.NoError(t, err)
+
+	rng := rand.New(rand.NewPCG(19, 0)) //nolint:gosec // Deterministic test signal.
+	var echoEnergy, residualEnergy float64
+	for i := range 400 {
+		far, near := NewFrame(Rate8k, 1), NewFrame(Rate8k, 1)
+		for j := range far.Data[0] {
+			far.Data[0][j] = float32(rng.NormFloat64() * 0.1)
+			near.Data[0][j] = 0.5 * far.Data[0][j]
+		}
+		echo := append([]float32(nil), near.Data[0]...)
+
+		require.NoError(t, proc.ProcessReverseStream(far))
+		require.NoError(t, proc.ProcessStream(near))
+		if i < 300 {
+			continue
+		}
+		for j := range echo {
+			echoEnergy += float64(echo[j]) * float64(echo[j])
+			residualEnergy += float64(near.Data[0][j]) * float64(near.Data[0][j])
+		}
+	}
+	erleDB := 10 * math.Log10(echoEnergy/residualEnergy)
+	assert.Greater(t, erleDB, 15.0)
 }
