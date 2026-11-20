@@ -11,4 +11,10 @@ const (
 
 	shortStartupPhaseBlocks = 50
 	longStartupPhaseBlocks  = 200
+	featureUpdateWindowSize = 500
+
+	ltrFeatureThr   = 0.5
+	binSizeLrt      = 0.1
+	binSizeSpecFlat = 0.05
+	binSizeSpecDiff = 0.1
 )
