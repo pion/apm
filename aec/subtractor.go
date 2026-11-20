@@ -32,10 +32,12 @@ type subtractor struct {
 }
 
 func newSubtractor(maxPartitions int) *subtractor {
+	cfg := defaultFilterConfig()
+
 	return &subtractor{
 		fft:     newAec3Fft(),
-		filter:  newAdaptiveFirFilter(maxPartitions, maxPartitions, 250, 1),
-		gain:    newCoarseFilterUpdateGain(defaultCoarseFilterConfig(), 250),
+		filter:  newAdaptiveFirFilter(maxPartitions, maxPartitions, cfg.configChangeDurationBlocks, 1),
+		gain:    newCoarseFilterUpdateGain(cfg.coarse, cfg.configChangeDurationBlocks),
 		rsa:     newRenderSignalAnalyzer(),
 		impulse: make([]float32, getTimeDomainLength(maxPartitions)),
 	}

@@ -73,3 +73,42 @@ func TestDefaultRenderLevelsConfig_MatchesUpstream(t *testing.T) {
 		cfg.renderPowerGainDB,
 	})
 }
+
+func TestDefaultBufferingConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultBufferingConfig()
+	assert.Equal(t, loadConfigReference(t)["buffering"], []float32{
+		float32(cfg.excessRenderDetectionIntervalBlocks),
+		float32(cfg.maxAllowedExcessRenderBlocks),
+	})
+}
+
+func refinedFilterValues(cfg refinedFilterConfig) []float32 {
+	return []float32{
+		float32(cfg.lengthBlocks), cfg.leakageConverged, cfg.leakageDiverged,
+		cfg.errorFloor, cfg.errorCeil, cfg.noiseGate,
+	}
+}
+
+func coarseFilterValues(cfg coarseFilterConfig) []float32 {
+	return []float32{float32(cfg.lengthBlocks), cfg.rate, cfg.noiseGate}
+}
+
+func TestDefaultFilterConfig_MatchesUpstream(t *testing.T) {
+	reference := loadConfigReference(t)
+	cfg := defaultFilterConfig()
+
+	assert.Equal(t, reference["filter_refined"], refinedFilterValues(cfg.refined))
+	assert.Equal(t, reference["filter_refined_initial"], refinedFilterValues(cfg.refinedInitial))
+	assert.Equal(t, reference["filter_coarse"], coarseFilterValues(cfg.coarse))
+	assert.Equal(t, reference["filter_coarse_initial"], coarseFilterValues(cfg.coarseInitial))
+	assert.Equal(t, reference["filter"], []float32{
+		float32(cfg.configChangeDurationBlocks),
+		cfg.initialStateSeconds,
+		float32(cfg.coarseResetHangoverBlocks),
+		boolValue(cfg.conservativeInitialPhase),
+		boolValue(cfg.enableCoarseFilterOutputUsage),
+		boolValue(cfg.useLinearFilter),
+		boolValue(cfg.highPassFilterEchoReference),
+		boolValue(cfg.exportLinearAecOutput),
+	})
+}

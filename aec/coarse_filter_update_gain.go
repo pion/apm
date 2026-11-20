@@ -4,18 +4,6 @@
 
 package aec
 
-// coarseFilterConfig mirrors EchoCanceller3Config::Filter::CoarseConfiguration.
-type coarseFilterConfig struct {
-	lengthBlocks int
-	rate         float32
-	noiseGate    float32
-}
-
-// Upstream default for the coarse filter coefficients.
-func defaultCoarseFilterConfig() coarseFilterConfig {
-	return coarseFilterConfig{lengthBlocks: 13, rate: 0.7, noiseGate: 20075344}
-}
-
 // coarseFilterUpdateGain ports CoarseFilterUpdateGain.
 type coarseFilterUpdateGain struct {
 	currentConfig                   coarseFilterConfig

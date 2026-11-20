@@ -84,3 +84,84 @@ func defaultRenderLevelsConfig() renderLevelsConfig {
 		renderPowerGainDB:            0,
 	}
 }
+
+// bufferingConfig mirrors EchoCanceller3Config::Buffering.
+type bufferingConfig struct {
+	excessRenderDetectionIntervalBlocks int
+	maxAllowedExcessRenderBlocks        int
+}
+
+// defaultBufferingConfig returns the upstream defaults.
+func defaultBufferingConfig() bufferingConfig {
+	return bufferingConfig{
+		excessRenderDetectionIntervalBlocks: 250,
+		maxAllowedExcessRenderBlocks:        8,
+	}
+}
+
+// refinedFilterConfig mirrors
+// EchoCanceller3Config::Filter::RefinedConfiguration.
+type refinedFilterConfig struct {
+	lengthBlocks     int
+	leakageConverged float32
+	leakageDiverged  float32
+	errorFloor       float32
+	errorCeil        float32
+	noiseGate        float32
+}
+
+// coarseFilterConfig mirrors
+// EchoCanceller3Config::Filter::CoarseConfiguration.
+type coarseFilterConfig struct {
+	lengthBlocks int
+	rate         float32
+	noiseGate    float32
+}
+
+// filterConfig mirrors EchoCanceller3Config::Filter.
+type filterConfig struct {
+	refined                       refinedFilterConfig
+	coarse                        coarseFilterConfig
+	refinedInitial                refinedFilterConfig
+	coarseInitial                 coarseFilterConfig
+	configChangeDurationBlocks    int
+	initialStateSeconds           float32
+	coarseResetHangoverBlocks     int
+	conservativeInitialPhase      bool
+	enableCoarseFilterOutputUsage bool
+	useLinearFilter               bool
+	highPassFilterEchoReference   bool
+	exportLinearAecOutput         bool
+}
+
+// defaultFilterConfig returns the upstream defaults.
+func defaultFilterConfig() filterConfig {
+	return filterConfig{
+		refined: refinedFilterConfig{
+			lengthBlocks:     13,
+			leakageConverged: 0.00005,
+			leakageDiverged:  0.05,
+			errorFloor:       0.001,
+			errorCeil:        2,
+			noiseGate:        20075344,
+		},
+		coarse: coarseFilterConfig{lengthBlocks: 13, rate: 0.7, noiseGate: 20075344},
+		refinedInitial: refinedFilterConfig{
+			lengthBlocks:     12,
+			leakageConverged: 0.005,
+			leakageDiverged:  0.5,
+			errorFloor:       0.001,
+			errorCeil:        2,
+			noiseGate:        20075344,
+		},
+		coarseInitial:                 coarseFilterConfig{lengthBlocks: 12, rate: 0.9, noiseGate: 20075344},
+		configChangeDurationBlocks:    250,
+		initialStateSeconds:           2.5,
+		coarseResetHangoverBlocks:     25,
+		conservativeInitialPhase:      false,
+		enableCoarseFilterOutputUsage: true,
+		useLinearFilter:               true,
+		highPassFilterEchoReference:   false,
+		exportLinearAecOutput:         false,
+	}
+}
