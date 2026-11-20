@@ -34,3 +34,6 @@ Check out the [contributing wiki](https://github.com/pion/webrtc/wiki/Contributi
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
+
+Files ported from [WebRTC](https://webrtc.googlesource.com/src) are also under the
+[BSD 3-Clause License](LICENSES/BSD-3-Clause.txt).
