@@ -165,3 +165,21 @@ func defaultFilterConfig() filterConfig {
 		exportLinearAecOutput:         false,
 	}
 }
+
+// echoCanceller3Config mirrors the ported parts of EchoCanceller3Config.
+type echoCanceller3Config struct {
+	buffering    bufferingConfig
+	delay        delayConfig
+	filter       filterConfig
+	renderLevels renderLevelsConfig
+}
+
+// defaultEchoCanceller3Config returns the upstream defaults.
+func defaultEchoCanceller3Config() echoCanceller3Config {
+	return echoCanceller3Config{
+		buffering:    defaultBufferingConfig(),
+		delay:        defaultDelayConfig(),
+		filter:       defaultFilterConfig(),
+		renderLevels: defaultRenderLevelsConfig(),
+	}
+}

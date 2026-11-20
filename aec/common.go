@@ -23,12 +23,18 @@ const (
 
 	kBlockSize     = kFftLengthBy2
 	kBlockSizeLog2 = 6
+	kBlockSizeMs   = kFftLengthBy2 * 1000 / 16000
 
 	kNumBlocksPerSecond = 250
 
 	kMatchedFilterWindowSizeSubBlocks         = 32
 	kMatchedFilterAlignmentShiftSizeSubBlocks = kMatchedFilterWindowSizeSubBlocks * 3 / 4
 )
+
+// numBandsForRate matches NumBandsForRate.
+func numBandsForRate(sampleRateHz int) int {
+	return sampleRateHz / 16000
+}
 
 // getTimeDomainLength matches GetTimeDomainLength.
 func getTimeDomainLength(filterLengthBlocks int) int {
