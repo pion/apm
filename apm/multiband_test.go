@@ -185,3 +185,26 @@ func TestProcessor_HPFFiltersFullBand(t *testing.T) {
 		}
 	}
 }
+
+// Without a module that works on the bands the signal is not split, so
+// it is not delayed or filtered by the filter bank.
+func TestProcessor_SkipsBandSplitWhenUnused(t *testing.T) {
+	for _, rate := range []SampleRate{Rate32k, Rate48k} {
+		cfg := DefaultConfig(rate, 1)
+		cfg.AGC = AGCConfig{Enabled: true, CompressionGain: 0}
+		proc, err := New(cfg)
+		require.NoError(t, err)
+
+		rng := rand.New(rand.NewPCG(3, 0)) //nolint:gosec // Deterministic test signal.
+		for i := range 5 {
+			frame := NewFrame(rate, 1)
+			for j := range frame.Data[0] {
+				frame.Data[0][j] = float32(rng.NormFloat64() * 0.01)
+			}
+			want := append([]float32(nil), frame.Data[0]...)
+
+			require.NoError(t, proc.ProcessStream(frame))
+			require.Equal(t, want, frame.Data[0], "rate %d, frame %d", rate, i)
+		}
+	}
+}

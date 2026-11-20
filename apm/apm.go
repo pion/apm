@@ -30,8 +30,13 @@ var (
 	ErrStreamDelay = errors.New("apm: stream delay out of [0, 500] ms")
 )
 
-// bandSamples is the per-band sample count of a 10 ms split-band frame.
-const bandSamples = 160
+const (
+	// bandRate is the sample rate of one band, in Hz. A 16 kHz stream is
+	// a single band.
+	bandRate = 16000
+	// bandSamples is the per-band sample count of a 10 ms frame.
+	bandSamples = 160
+)
 
 // Processor is a per-stream APM instance. One Processor per audio stream.
 // Not safe for concurrent use.
@@ -43,8 +48,8 @@ type Processor struct {
 	agc *agc.Controller
 	aec *aec.Canceller
 
-	// Multi-band splitting filter: non-nil for 32/48 kHz where the main
-	// pipeline runs on band 0 (lowest sub-band) at an effective 16 kHz.
+	// Band splitting filters: non-nil at 32 and 48 kHz when a module
+	// works on the bands.
 	splitCapture *subband.SplittingFilter
 	splitRender  *subband.SplittingFilter
 	captureBands [][][]float32 // [band][channel][sample]; allocated once at New()
@@ -60,22 +65,23 @@ func New(cfg Config) (*Processor, error) {
 
 	proc := &Processor{cfg: cfg}
 
-	proc.splitCapture, proc.captureBands, err = newSplitter(cfg.SampleRate, cfg.NumChannels)
-	if err != nil {
-		return nil, fmt.Errorf("apm: splitting filter: %w", err)
+	// Like upstream, split the capture signal only when a module that
+	// works on the bands is enabled, and the render signal only for the
+	// echo canceller.
+	if cfg.HPF.Enabled || cfg.NS.Enabled || cfg.AEC.Enabled {
+		proc.splitCapture, proc.captureBands, err = newSplitter(cfg.SampleRate, cfg.NumChannels)
+		if err != nil {
+			return nil, fmt.Errorf("apm: splitting filter: %w", err)
+		}
 	}
-	proc.splitRender, proc.renderBands, err = newSplitter(cfg.ReverseSampleRate, cfg.ReverseNumChannels)
-	if err != nil {
-		return nil, fmt.Errorf("apm: render splitting filter: %w", err)
+	if cfg.AEC.Enabled {
+		proc.splitRender, proc.renderBands, err = newSplitter(cfg.ReverseSampleRate, cfg.ReverseNumChannels)
+		if err != nil {
+			return nil, fmt.Errorf("apm: render splitting filter: %w", err)
+		}
 	}
 
-	// For 32/48 kHz inputs the inner pipeline processes band 0 of the
-	// split-band representation at 16 kHz.
-	innerRate := int(cfg.SampleRate)
-	if proc.splitCapture != nil {
-		innerRate = 16000
-	}
-	if err := proc.initModules(innerRate); err != nil {
+	if err := proc.initModules(); err != nil {
 		return nil, err
 	}
 
@@ -131,8 +137,8 @@ func newSplitter(rate SampleRate, numChannels int) (*subband.SplittingFilter, []
 	return sf, allocBandBuffers(numBands, numChannels), nil
 }
 
-// initModules creates the enabled processing modules at the inner rate.
-func (p *Processor) initModules(innerRate int) error {
+// initModules creates the enabled processing modules.
+func (p *Processor) initModules() error {
 	cfg := p.cfg
 	if cfg.HPF.Enabled {
 		// Upstream filters the full band by default, before the split.
@@ -143,7 +149,7 @@ func (p *Processor) initModules(innerRate int) error {
 		p.hpf = f
 	}
 	if cfg.NS.Enabled {
-		s, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, innerRate, cfg.NumChannels)
+		s, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, bandRate, cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: ns: %w", err)
 		}
@@ -159,7 +165,7 @@ func (p *Processor) initModules(innerRate int) error {
 		p.agc = c
 	}
 	if cfg.AEC.Enabled {
-		c, err := aec.New(aec.DefaultConfig(), innerRate, cfg.NumChannels)
+		c, err := aec.New(aec.DefaultConfig(), bandRate, cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: aec: %w", err)
 		}
@@ -215,9 +221,8 @@ func (p *Processor) processBands(data [][]float32) error {
 	return p.splitCapture.Synthesis(p.captureBands, data)
 }
 
-// processInner runs the per-module pipeline at the inner (16 kHz) rate
-// on whatever per-channel buffers the caller supplies (the full-band
-// signal at 16 kHz, or band 0 at 32/48 kHz).
+// processInner runs the band modules on 16 kHz buffers: the whole signal
+// at 16 kHz, its lowest band at 32 and 48 kHz.
 func (p *Processor) processInner(channels [][]float32) error {
 	// Upstream analyzes the noise before the echo canceller changes the
 	// signal.
