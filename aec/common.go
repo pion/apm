@@ -24,6 +24,11 @@ const (
 	kMatchedFilterAlignmentShiftSizeSubBlocks = kMatchedFilterWindowSizeSubBlocks * 3 / 4
 )
 
+// getTimeDomainLength matches GetTimeDomainLength.
+func getTimeDomainLength(filterLengthBlocks int) int {
+	return filterLengthBlocks * kFftLengthBy2
+}
+
 // getDownSampledBufferSize matches GetDownSampledBufferSize.
 func getDownSampledBufferSize(downSamplingFactor, numMatchedFilters int) int {
 	return kBlockSize / downSamplingFactor *
