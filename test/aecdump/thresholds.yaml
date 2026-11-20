@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+# Thresholds for replayed .aecdump fixtures.
+#
+# Each key matches a fixture filename in ./corpus/ (without extension).
+# Values are pass/fail bounds, scoped to whichever module the fixture is
+# meant to exercise.
+
+# The synthetic passthrough fixture used by replay_test.go is created at
+# test time and uses these bounds as a baseline sanity check.
+synthetic_passthrough:
+  min_snr_db: 60.0  # passthrough should preserve samples exactly
+  notes: synthetic fixture from replay_test.go
+
+# Real corpus entries are added here as the team curates them.
+# Example shape:
+# echo_easy:
+#   min_erle_db: 25.0
+#   notes: living-room IR, no double-talk
