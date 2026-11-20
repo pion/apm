@@ -171,6 +171,7 @@ type echoCanceller3Config struct {
 	buffering    bufferingConfig
 	delay        delayConfig
 	filter       filterConfig
+	epStrength   epStrengthConfig
 	renderLevels renderLevelsConfig
 }
 
@@ -180,6 +181,29 @@ func defaultEchoCanceller3Config() echoCanceller3Config {
 		buffering:    defaultBufferingConfig(),
 		delay:        defaultDelayConfig(),
 		filter:       defaultFilterConfig(),
+		epStrength:   defaultEpStrengthConfig(),
 		renderLevels: defaultRenderLevelsConfig(),
+	}
+}
+
+// epStrengthConfig mirrors EchoCanceller3Config::EpStrength.
+type epStrengthConfig struct {
+	defaultGain                            float32
+	defaultLen                             float32
+	nearendLen                             float32
+	echoCanSaturate                        bool
+	boundedErl                             bool
+	erleOnsetCompensationInDominantNearend bool
+	useConservativeTailFrequencyResponse   bool
+}
+
+// defaultEpStrengthConfig returns the upstream defaults.
+func defaultEpStrengthConfig() epStrengthConfig {
+	return epStrengthConfig{
+		defaultGain:                          1,
+		defaultLen:                           0.83,
+		nearendLen:                           0.83,
+		echoCanSaturate:                      true,
+		useConservativeTailFrequencyResponse: true,
 	}
 }

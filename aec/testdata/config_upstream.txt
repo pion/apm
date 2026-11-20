@@ -6,5 +6,6 @@ filter_refined_initial: 12 0.00499999989 0.5 0.00100000005 2 20075344
 filter_coarse: 13 0.699999988 20075344
 filter_coarse_initial: 12 0.899999976 20075344
 filter: 250 2.5 25 0 1 1 0 0
+ep_strength: 1 0.829999983 0.829999983 1 0 0 1
 render_alignment_mixing: 0 1 10000 1
 capture_alignment_mixing: 0 1 10000 0

@@ -112,3 +112,16 @@ func TestDefaultFilterConfig_MatchesUpstream(t *testing.T) {
 		boolValue(cfg.exportLinearAecOutput),
 	})
 }
+
+func TestDefaultEpStrengthConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultEpStrengthConfig()
+	assert.Equal(t, loadConfigReference(t)["ep_strength"], []float32{
+		cfg.defaultGain,
+		cfg.defaultLen,
+		cfg.nearendLen,
+		boolValue(cfg.echoCanSaturate),
+		boolValue(cfg.boundedErl),
+		boolValue(cfg.erleOnsetCompensationInDominantNearend),
+		boolValue(cfg.useConservativeTailFrequencyResponse),
+	})
+}
