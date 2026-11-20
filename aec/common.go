@@ -13,6 +13,8 @@
 // expect the residual echo to remain audible.
 package aec
 
+import "math"
+
 const (
 	kFftLengthBy2      = 64
 	kFftLengthBy2Plus1 = kFftLengthBy2 + 1
@@ -53,4 +55,13 @@ func getRenderDelayBufferSize(downSamplingFactor, numMatchedFilters, filterLengt
 	return getDownSampledBufferSize(downSamplingFactor, numMatchedFilters)/
 		(kBlockSize/downSamplingFactor) +
 		filterLengthBlocks + 1
+}
+
+// fastApproxLog2f matches FastApproxLog2f: it reads the exponent of the
+// float and removes the bias.
+func fastApproxLog2f(in float32) float32 {
+	out := float32(math.Float32bits(in))
+	out *= 1.1920929e-7 // 1/2^23
+
+	return out - 126.942695
 }
