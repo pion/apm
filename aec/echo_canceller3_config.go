@@ -171,6 +171,7 @@ type echoCanceller3Config struct {
 	buffering    bufferingConfig
 	delay        delayConfig
 	filter       filterConfig
+	erle         erleConfig
 	epStrength   epStrengthConfig
 	renderLevels renderLevelsConfig
 }
@@ -181,6 +182,7 @@ func defaultEchoCanceller3Config() echoCanceller3Config {
 		buffering:    defaultBufferingConfig(),
 		delay:        defaultDelayConfig(),
 		filter:       defaultFilterConfig(),
+		erle:         defaultErleConfig(),
 		epStrength:   defaultEpStrengthConfig(),
 		renderLevels: defaultRenderLevelsConfig(),
 	}
@@ -205,5 +207,29 @@ func defaultEpStrengthConfig() epStrengthConfig {
 		nearendLen:                           0.83,
 		echoCanSaturate:                      true,
 		useConservativeTailFrequencyResponse: true,
+	}
+}
+
+// erleConfig mirrors EchoCanceller3Config::Erle.
+type erleConfig struct {
+	min                        float32
+	maxL                       float32
+	maxH                       float32
+	onsetDetection             bool
+	numSections                int
+	clampQualityEstimateToZero bool
+	clampQualityEstimateToOne  bool
+}
+
+// defaultErleConfig returns the upstream defaults.
+func defaultErleConfig() erleConfig {
+	return erleConfig{
+		min:                        1,
+		maxL:                       4,
+		maxH:                       1.5,
+		onsetDetection:             true,
+		numSections:                1,
+		clampQualityEstimateToZero: true,
+		clampQualityEstimateToOne:  true,
 	}
 }

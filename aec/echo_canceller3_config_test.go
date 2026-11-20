@@ -125,3 +125,16 @@ func TestDefaultEpStrengthConfig_MatchesUpstream(t *testing.T) {
 		boolValue(cfg.useConservativeTailFrequencyResponse),
 	})
 }
+
+func TestDefaultErleConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultErleConfig()
+	assert.Equal(t, loadConfigReference(t)["erle"], []float32{
+		cfg.min,
+		cfg.maxL,
+		cfg.maxH,
+		boolValue(cfg.onsetDetection),
+		float32(cfg.numSections),
+		boolValue(cfg.clampQualityEstimateToZero),
+		boolValue(cfg.clampQualityEstimateToOne),
+	})
+}
