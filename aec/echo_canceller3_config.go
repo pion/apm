@@ -66,3 +66,21 @@ func defaultDelayConfig() delayConfig {
 		detectPreEcho: true,
 	}
 }
+
+// renderLevelsConfig mirrors EchoCanceller3Config::RenderLevels.
+type renderLevelsConfig struct {
+	activeRenderLimit            float32
+	poorExcitationRenderLimit    float32
+	poorExcitationRenderLimitDs8 float32
+	renderPowerGainDB            float32
+}
+
+// defaultRenderLevelsConfig returns the upstream defaults.
+func defaultRenderLevelsConfig() renderLevelsConfig {
+	return renderLevelsConfig{
+		activeRenderLimit:            100,
+		poorExcitationRenderLimit:    150,
+		poorExcitationRenderLimitDs8: 20,
+		renderPowerGainDB:            0,
+	}
+}

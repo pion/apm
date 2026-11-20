@@ -27,14 +27,21 @@ func alignmentMixingValues(mixing alignmentMixing) []float32 {
 	}
 }
 
-// TestDefaultDelayConfig_MatchesUpstream compares the defaults with the
-// values of a default-constructed upstream EchoCanceller3Config at the
-// pinned commit, printed field by field in declaration order.
-func TestDefaultDelayConfig_MatchesUpstream(t *testing.T) {
+// loadConfigReference reads the values of a default-constructed upstream
+// EchoCanceller3Config at the pinned commit, one line per struct with
+// the fields in declaration order.
+func loadConfigReference(t *testing.T) map[string][]float32 {
+	t.Helper()
 	reference := map[string][]float32{}
-	for _, entry := range refdata.Load(t, "testdata/delay_config_upstream.txt") {
+	for _, entry := range refdata.Load(t, "testdata/config_upstream.txt") {
 		reference[entry.Key] = entry.Samples
 	}
+
+	return reference
+}
+
+func TestDefaultDelayConfig_MatchesUpstream(t *testing.T) {
+	reference := loadConfigReference(t)
 
 	cfg := defaultDelayConfig()
 	assert.Equal(t, reference["delay"], []float32{
@@ -55,4 +62,14 @@ func TestDefaultDelayConfig_MatchesUpstream(t *testing.T) {
 	})
 	assert.Equal(t, reference["render_alignment_mixing"], alignmentMixingValues(cfg.renderAlignmentMixing))
 	assert.Equal(t, reference["capture_alignment_mixing"], alignmentMixingValues(cfg.captureAlignmentMixing))
+}
+
+func TestDefaultRenderLevelsConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultRenderLevelsConfig()
+	assert.Equal(t, loadConfigReference(t)["render_levels"], []float32{
+		cfg.activeRenderLimit,
+		cfg.poorExcitationRenderLimit,
+		cfg.poorExcitationRenderLimitDs8,
+		cfg.renderPowerGainDB,
+	})
 }
