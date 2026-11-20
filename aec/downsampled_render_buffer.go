@@ -8,49 +8,13 @@ package aec
 // buffer of downsampled render samples. Samples are written towards
 // lower indices, so reading forward goes back in time.
 type downsampledRenderBuffer struct {
-	size   int
+	ringIndex
 	buffer []float32
-	write  int
-	read   int
 }
 
 func newDownsampledRenderBuffer(downsampledBufferSize int) *downsampledRenderBuffer {
 	return &downsampledRenderBuffer{
-		size:   downsampledBufferSize,
-		buffer: make([]float32, downsampledBufferSize),
+		ringIndex: ringIndex{size: downsampledBufferSize},
+		buffer:    make([]float32, downsampledBufferSize),
 	}
 }
-
-func (b *downsampledRenderBuffer) incIndex(index int) int {
-	if index < b.size-1 {
-		return index + 1
-	}
-
-	return 0
-}
-
-func (b *downsampledRenderBuffer) decIndex(index int) int {
-	if index > 0 {
-		return index - 1
-	}
-
-	return b.size - 1
-}
-
-// offsetIndex moves index by offset, which may be negative but not
-// below -size.
-func (b *downsampledRenderBuffer) offsetIndex(index, offset int) int {
-	return (b.size + index + offset) % b.size
-}
-
-func (b *downsampledRenderBuffer) updateWriteIndex(offset int) {
-	b.write = b.offsetIndex(b.write, offset)
-}
-func (b *downsampledRenderBuffer) incWriteIndex() { b.write = b.incIndex(b.write) }
-func (b *downsampledRenderBuffer) decWriteIndex() { b.write = b.decIndex(b.write) }
-
-func (b *downsampledRenderBuffer) updateReadIndex(offset int) {
-	b.read = b.offsetIndex(b.read, offset)
-}
-func (b *downsampledRenderBuffer) incReadIndex() { b.read = b.incIndex(b.read) }
-func (b *downsampledRenderBuffer) decReadIndex() { b.read = b.decIndex(b.read) }
