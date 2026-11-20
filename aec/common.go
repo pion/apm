@@ -18,6 +18,8 @@ const (
 	kFftLengthBy2Plus1 = kFftLengthBy2 + 1
 	kFftLength         = 2 * kFftLengthBy2
 
+	kFrameSize = 160
+
 	kBlockSize = kFftLengthBy2
 
 	kMatchedFilterWindowSizeSubBlocks         = 32
