@@ -54,6 +54,11 @@ type Processor struct {
 	splitRender  *subband.SplittingFilter
 	captureBands [][][]float32 // [band][channel][sample]; allocated once at New()
 	renderBands  [][][]float32
+
+	// Render stream at the capture rate, for the echo canceller. The
+	// resampler is non-nil when the reverse rate differs.
+	renderBuffer    [][]float32
+	renderResampler *rateConverter
 }
 
 // New constructs a Processor.
@@ -75,9 +80,8 @@ func New(cfg Config) (*Processor, error) {
 		}
 	}
 	if cfg.AEC.Enabled {
-		proc.splitRender, proc.renderBands, err = newSplitter(cfg.ReverseSampleRate, cfg.ReverseNumChannels)
-		if err != nil {
-			return nil, fmt.Errorf("apm: render splitting filter: %w", err)
+		if err := proc.initRender(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -115,6 +119,27 @@ func resolveConfig(cfg Config) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// initRender sets up the render path of the echo canceller. Like upstream,
+// the render stream is processed at the capture rate.
+func (p *Processor) initRender() error {
+	cfg := p.cfg
+	p.renderBuffer = allocChannels(cfg.ReverseNumChannels, cfg.SampleRate.SamplesPerFrame())
+
+	var err error
+	if cfg.ReverseSampleRate != cfg.SampleRate {
+		p.renderResampler, err = newRateConverter(cfg.ReverseSampleRate, cfg.SampleRate, cfg.ReverseNumChannels)
+		if err != nil {
+			return err
+		}
+	}
+	p.splitRender, p.renderBands, err = newSplitter(cfg.SampleRate, cfg.ReverseNumChannels)
+	if err != nil {
+		return fmt.Errorf("apm: render splitting filter: %w", err)
+	}
+
+	return nil
 }
 
 // newSplitter returns a band splitting filter and its buffers for 32 and
@@ -287,13 +312,21 @@ func (p *Processor) ProcessReverseStream(far *Frame) error {
 		return nil
 	}
 
-	scaleUp(far.Data)
-	defer scaleDown(far.Data)
+	if p.renderResampler != nil {
+		if err := p.renderResampler.convert(far.Data, p.renderBuffer); err != nil {
+			return err
+		}
+	} else {
+		for i, channel := range far.Data {
+			copy(p.renderBuffer[i], channel)
+		}
+	}
+	scaleUp(p.renderBuffer)
 
 	if p.splitRender == nil {
-		return p.aec.AnalyzeRender(far.Data)
+		return p.aec.AnalyzeRender(p.renderBuffer)
 	}
-	if err := p.splitRender.Analysis(far.Data, p.renderBands); err != nil {
+	if err := p.splitRender.Analysis(p.renderBuffer, p.renderBands); err != nil {
 		return err
 	}
 

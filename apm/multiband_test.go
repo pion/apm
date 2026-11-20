@@ -9,7 +9,9 @@ import (
 	"math/rand/v2"
 	"testing"
 
+	"github.com/pion/apm/aec"
 	"github.com/pion/apm/hpf"
+	"github.com/pion/apm/internal/resampler"
 	"github.com/pion/apm/internal/subband"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -244,5 +246,53 @@ func TestProcessor_NSSuppressesUpperBands(t *testing.T) {
 		}
 		gainDB := 10 * math.Log10(outEnergy/inEnergy)
 		assert.Less(t, gainDB, -6.0, "rate %d: output energy over tone energy", tc.rate)
+	}
+}
+
+// Like upstream, a render stream at another rate is resampled to the
+// capture rate before it is split into bands for the echo canceller.
+func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
+	cfg := DefaultConfig(Rate48k, 1)
+	cfg.ReverseSampleRate = Rate16k
+	cfg.AEC.Enabled = true
+	proc, err := New(cfg)
+	require.NoError(t, err)
+
+	renderResampler, err := resampler.NewPushSincResampler(160, 480)
+	require.NoError(t, err)
+	renderSplitter, err := subband.NewSplittingFilter(1, 3)
+	require.NoError(t, err)
+	captureSplitter, err := subband.NewSplittingFilter(1, 3)
+	require.NoError(t, err)
+	canceller, err := aec.New(aec.DefaultConfig(), 16000, 1)
+	require.NoError(t, err)
+	renderBands, captureBands := allocBandBuffers(3, 1), allocBandBuffers(3, 1)
+
+	rng := rand.New(rand.NewPCG(13, 0)) //nolint:gosec // Deterministic test signal.
+	for i := range 30 {
+		far, near := NewFrame(Rate16k, 1), NewFrame(Rate48k, 1)
+		for j := range far.Data[0] {
+			far.Data[0][j] = float32(rng.NormFloat64() * 0.1)
+		}
+		for j := range near.Data[0] {
+			near.Data[0][j] = float32(rng.NormFloat64() * 0.1)
+		}
+
+		render := [][]float32{make([]float32, 480)}
+		require.NoError(t, renderResampler.Resample(far.Data[0], render[0]))
+		scaleUp(render)
+		require.NoError(t, renderSplitter.Analysis(render, renderBands))
+		require.NoError(t, canceller.AnalyzeRender(renderBands[0]))
+
+		want := [][]float32{append([]float32(nil), near.Data[0]...)}
+		scaleUp(want)
+		require.NoError(t, captureSplitter.Analysis(want, captureBands))
+		require.NoError(t, canceller.ProcessCapture(captureBands[0]))
+		require.NoError(t, captureSplitter.Synthesis(captureBands, want))
+		scaleDown(want)
+
+		require.NoError(t, proc.ProcessReverseStream(far))
+		require.NoError(t, proc.ProcessStream(near))
+		require.Equal(t, want[0], near.Data[0], "frame %d", i)
 	}
 }
