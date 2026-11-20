@@ -9,6 +9,9 @@ package subband
 // path (one 320-sample frame splits into two 160-sample bands at 16 kHz
 // each).
 
+// maxBandFrameLength matches kMaxBandFrameLength: 10 ms at 64 kHz.
+const maxBandFrameLength = 320
+
 // QMFState holds the cascaded all-pass filter state for one channel.
 type QMFState struct {
 	AnalysisState1  [6]float32
@@ -66,11 +69,13 @@ func AnalysisQMF(in, lowBand, highBand []float32, state *QMFState) {
 	if len(lowBand) != bandLen || len(highBand) != bandLen {
 		panic("subband: AnalysisQMF band length mismatch") //nolint:forbidigo // Invariant violated by the caller.
 	}
+	if bandLen > maxBandFrameLength {
+		panic("subband: AnalysisQMF band too long") //nolint:forbidigo // Invariant violated by the caller.
+	}
 
-	halfIn1 := make([]float32, bandLen)
-	halfIn2 := make([]float32, bandLen)
-	filter1 := make([]float32, bandLen)
-	filter2 := make([]float32, bandLen)
+	var scratch [4][maxBandFrameLength]float32
+	halfIn1, halfIn2 := scratch[0][:bandLen], scratch[1][:bandLen]
+	filter1, filter2 := scratch[2][:bandLen], scratch[3][:bandLen]
 
 	for i, k := 0, 0; i < bandLen; i, k = i+1, k+2 {
 		halfIn2[i] = in[k]
@@ -95,11 +100,13 @@ func SynthesisQMF(lowBand, highBand, out []float32, state *QMFState) {
 	if len(out) != 2*bandLen {
 		panic("subband: SynthesisQMF output length mismatch") //nolint:forbidigo // Invariant violated by the caller.
 	}
+	if bandLen > maxBandFrameLength {
+		panic("subband: SynthesisQMF band too long") //nolint:forbidigo // Invariant violated by the caller.
+	}
 
-	halfIn1 := make([]float32, bandLen)
-	halfIn2 := make([]float32, bandLen)
-	filter1 := make([]float32, bandLen)
-	filter2 := make([]float32, bandLen)
+	var scratch [4][maxBandFrameLength]float32
+	halfIn1, halfIn2 := scratch[0][:bandLen], scratch[1][:bandLen]
+	filter1, filter2 := scratch[2][:bandLen], scratch[3][:bandLen]
 
 	for i := range bandLen {
 		halfIn1[i] = lowBand[i] + highBand[i]

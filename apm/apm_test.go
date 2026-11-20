@@ -131,3 +131,25 @@ func TestProcessor_MixedRatesWithAEC(t *testing.T) {
 	require.NoError(t, proc.ProcessReverseStream(NewFrame(Rate16k, 1)))
 	require.NoError(t, proc.ProcessStream(NewFrame(Rate48k, 1)))
 }
+
+func TestProcessor_ZeroAllocAllModules(t *testing.T) {
+	for _, rate := range []SampleRate{Rate16k, Rate32k, Rate48k} {
+		cfg := DefaultConfig(rate, 2)
+		cfg.HPF.Enabled = true
+		cfg.AEC.Enabled = true
+		cfg.NS.Enabled = true
+		cfg.AGC.Enabled = true
+		proc, err := New(cfg)
+		require.NoError(t, err)
+
+		far, near := NewFrame(rate, 2), NewFrame(rate, 2)
+		process := func() {
+			_ = proc.ProcessReverseStream(far)
+			_ = proc.ProcessStream(near)
+		}
+		for range 10 {
+			process()
+		}
+		assert.Zero(t, testing.AllocsPerRun(100, process), "rate %d", rate)
+	}
+}

@@ -86,3 +86,15 @@ func alignedSNR(in, out []float32, maxLag, skip int) float64 {
 
 	return best
 }
+
+func TestQMF_ZeroAlloc(t *testing.T) {
+	var state QMFState
+	in := make([]float32, 320)
+	low := make([]float32, 160)
+	high := make([]float32, 160)
+
+	assert.Zero(t, testing.AllocsPerRun(100, func() {
+		AnalysisQMF(in, low, high, &state)
+		SynthesisQMF(low, high, in, &state)
+	}))
+}
