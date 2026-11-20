@@ -29,6 +29,8 @@ type subtractorScenario struct {
 	render, capture       *block
 	outputs               []subtractorOutput
 	delayBuffers          []*testDelayBuffer
+	// delayChangeBlock is the block where a delay change is signaled.
+	delayChangeBlock int
 }
 
 const subtractorScenarioBlocks = 1203
@@ -49,6 +51,7 @@ func newSubtractorScenario(numRender, numCapture, delaySamples int) *subtractorS
 		capture:           newBlock(1, numCapture),
 		outputs:           make([]subtractorOutput, numCapture),
 		delayBuffers:      make([]*testDelayBuffer, numRender),
+		delayChangeBlock:  1200,
 	}
 	for ch := range scenario.delayBuffers {
 		scenario.delayBuffers[ch] = newTestDelayBuffer(delaySamples)
@@ -89,7 +92,7 @@ func (s *subtractorScenario) step(index int) {
 	switch index {
 	case 300:
 		s.subtractor.exitInitialState()
-	case 1200:
+	case s.delayChangeBlock:
 		s.subtractor.handleEchoPathChange(echoPathVariability{delayChange: delayAdjustmentNewDetectedDelay})
 	}
 
