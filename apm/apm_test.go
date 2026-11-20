@@ -75,3 +75,21 @@ func TestProcessor_ZeroAllocSteadyState(t *testing.T) {
 	})
 	assert.Zero(t, allocs, "ProcessStream allocates in steady state")
 }
+
+func TestProcessReverseStream_LeavesFrameUnchanged(t *testing.T) {
+	for _, rate := range []SampleRate{Rate16k, Rate32k, Rate48k} {
+		cfg := DefaultConfig(rate, 1)
+		cfg.AEC.Enabled = true
+		proc, err := New(cfg)
+		require.NoError(t, err)
+
+		far := NewFrame(rate, 1)
+		for i := range far.Data[0] {
+			far.Data[0][i] = float32(i%32)/32 - 0.5
+		}
+		want := append([]float32(nil), far.Data[0]...)
+
+		require.NoError(t, proc.ProcessReverseStream(far))
+		assert.Equal(t, want, far.Data[0], "rate %d", rate)
+	}
+}

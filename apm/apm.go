@@ -241,8 +241,9 @@ func allocBandBuffers(numBands, numChannels int) [][][]float32 {
 	return bands
 }
 
-// ProcessReverseStream processes one 10 ms far-end (render) frame. The
-// echo canceller consumes this stream; other modules ignore it.
+// ProcessReverseStream analyzes one 10 ms far-end (render) frame. The
+// echo canceller consumes this stream; other modules ignore it. The
+// frame is left unchanged.
 func (p *Processor) ProcessReverseStream(far *Frame) error {
 	if err := p.validateFrame(far, p.cfg.ReverseSampleRate, p.cfg.ReverseNumChannels); err != nil {
 		return err
@@ -260,11 +261,8 @@ func (p *Processor) ProcessReverseStream(far *Frame) error {
 	if err := p.splitRender.Analysis(far.Data, p.renderBands); err != nil {
 		return err
 	}
-	if err := p.aec.AnalyzeRender(p.renderBands[0]); err != nil {
-		return err
-	}
 
-	return p.splitRender.Synthesis(p.renderBands, far.Data)
+	return p.aec.AnalyzeRender(p.renderBands[0])
 }
 
 // SetStreamDelayMS reports round-trip stream delay (ms) to the echo canceller.
