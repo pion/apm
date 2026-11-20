@@ -15,8 +15,12 @@ import "fmt"
 // filter quality is unknown every 7th update, the block is stationary
 // every 11th update, the delay is 0 in updates 1000 to 1009 and the
 // linear filter is not usable in updates 2000 to 2004.
+//
+// The "slow" variant has impulse responses that decay slowly, the "fast"
+// variant has ones that decay fast, down to a lower noise floor.
 type reverbScenario struct {
 	config     echoCanceller3Config
+	variant    string
 	random     *testRandom
 	h          [][]float32
 	h2         [][][kFftLengthBy2Plus1]float32
@@ -29,14 +33,18 @@ type reverbScenario struct {
 const (
 	reverbScenarioChannels = 2
 	reverbScenarioUpdates  = 3000
+
+	reverbVariantSlow = "slow"
+	reverbVariantFast = "fast"
 )
 
-func newReverbScenario(lengthBlocks int, defaultLen float32) *reverbScenario {
+func newReverbScenario(lengthBlocks int, defaultLen float32, variant string) *reverbScenario {
 	config := defaultEchoCanceller3Config()
 	config.filter.refined.lengthBlocks = lengthBlocks
 	config.epStrength.defaultLen = defaultLen
 	scenario := &reverbScenario{
 		config:    config,
+		variant:   variant,
 		random:    newTestRandom(42),
 		h:         make([][]float32, reverbScenarioChannels),
 		h2:        make([][][kFftLengthBy2Plus1]float32, reverbScenarioChannels),
@@ -53,29 +61,32 @@ func newReverbScenario(lengthBlocks int, defaultLen float32) *reverbScenario {
 }
 
 // reverbScenarioSuffix is the end of the keys of a run in the reference
-// files: "name filter_length_blocks default_len".
-func reverbScenarioSuffix(lengthBlocks int, defaultLen float32) string {
-	return fmt.Sprintf(" %d %g", lengthBlocks, defaultLen)
+// files: "name filter_length_blocks default_len", plus the variant when
+// there is one.
+func reverbScenarioSuffix(lengthBlocks int, defaultLen float32, variant string) string {
+	suffix := fmt.Sprintf(" %d %g", lengthBlocks, defaultLen)
+	if variant != "" {
+		suffix += " " + variant
+	}
+
+	return suffix
+}
+
+// sampleDecay returns the decay per sample of the impulse responses.
+func (s *reverbScenario) sampleDecay(index int) float32 {
+	decays := map[string][2]float32{
+		"": {0.9946, 0.9973}, reverbVariantSlow: {0.9997, 0.9999}, reverbVariantFast: {0.96, 0.97},
+	}[s.variant]
+	if index < 1500 {
+		return decays[0]
+	}
+
+	return decays[1]
 }
 
 func (s *reverbScenario) drawFilter(ch int, sampleDecay, blockDecay float32) {
 	delay := 2 + ch
-	peak := delay*kBlockSize + 5
-	envelope := float32(0.3)
-	for k := range s.h[ch] {
-		noise := 2*s.random.randFloat() - 1
-		switch {
-		case k < peak:
-			s.h[ch][k] = 0
-		case k == peak:
-			s.h[ch][k] = 0.8
-		default:
-			if k >= peak+4*kBlockSize {
-				envelope *= sampleDecay
-			}
-			s.h[ch][k] = float32(envelope*noise) + float32(1e-3*noise)
-		}
-	}
+	s.drawImpulseResponse(s.h[ch], delay*kBlockSize+5, sampleDecay)
 
 	gain := float32(1)
 	for partition := range s.h2[ch] {
@@ -93,14 +104,36 @@ func (s *reverbScenario) drawFilter(ch int, sampleDecay, blockDecay float32) {
 	}
 }
 
+func (s *reverbScenario) drawImpulseResponse(response []float32, peak int, sampleDecay float32) {
+	noiseFloor := float32(1e-3)
+	if s.variant == reverbVariantFast {
+		noiseFloor = 1e-9
+	}
+	envelope := float32(0.3)
+	for k := range response {
+		noise := 2*s.random.randFloat() - 1
+		switch {
+		case k < peak:
+			response[k] = 0
+		case k == peak:
+			response[k] = 0.8
+		default:
+			if k >= peak+4*kBlockSize {
+				envelope *= sampleDecay
+			}
+			response[k] = float32(envelope*noise) + float32(noiseFloor*noise)
+		}
+	}
+}
+
 func (s *reverbScenario) step(index int) {
 	if index%500 == 0 {
-		sampleDecay, blockDecay := float32(0.9946), float32(0.5)
+		blockDecay := float32(0.5)
 		if index >= 1500 {
-			sampleDecay, blockDecay = 0.9973, 0.7
+			blockDecay = 0.7
 		}
 		for ch := range reverbScenarioChannels {
-			s.drawFilter(ch, sampleDecay, blockDecay)
+			s.drawFilter(ch, s.sampleDecay(index), blockDecay)
 		}
 	}
 	for ch := range reverbScenarioChannels {

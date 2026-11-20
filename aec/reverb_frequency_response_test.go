@@ -16,9 +16,9 @@ const reverbReferenceDelta = 1e-6
 // response of the reverb with the upstream ReverbFrequencyResponse at
 // the pinned commit, with and without the conservative tail response.
 func TestReverbFrequencyResponse_MatchesUpstream(t *testing.T) {
-	suffix := reverbScenarioSuffix(13, 0.83)
+	suffix := reverbScenarioSuffix(13, 0.83, "")
 	reference := newReferenceCursor(t, "testdata/reverb_frequency_response_upstream.txt", suffix)
-	scenario := newReverbScenario(13, 0.83)
+	scenario := newReverbScenario(13, 0.83, "")
 	conservative := newReverbFrequencyResponse(true)
 	plain := newReverbFrequencyResponse(false)
 
