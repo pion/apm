@@ -5,8 +5,11 @@
 package apm
 
 import (
+	"math/rand/v2"
 	"testing"
 
+	"github.com/pion/apm/aec"
+	"github.com/pion/apm/ns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -151,5 +154,42 @@ func TestProcessor_ZeroAllocAllModules(t *testing.T) {
 			process()
 		}
 		assert.Zero(t, testing.AllocsPerRun(100, process), "rate %d", rate)
+	}
+}
+
+// The capture path follows upstream: noise analysis, echo cancellation,
+// then noise suppression.
+func TestProcessor_AnalyzesNoiseBeforeEchoCancellation(t *testing.T) {
+	cfg := DefaultConfig(Rate16k, 1)
+	cfg.AEC.Enabled = true
+	cfg.NS.Enabled = true
+	proc, err := New(cfg)
+	require.NoError(t, err)
+
+	canceller, err := aec.New(aec.DefaultConfig(), 16000, 1)
+	require.NoError(t, err)
+	suppressor, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, 16000, 1)
+	require.NoError(t, err)
+
+	rng := rand.New(rand.NewPCG(11, 0)) //nolint:gosec // Deterministic test signal.
+	for i := range 50 {
+		far, near := NewFrame(Rate16k, 1), NewFrame(Rate16k, 1)
+		wantFar := [][]float32{make([]float32, 160)}
+		want := [][]float32{make([]float32, 160)}
+		for j := range 160 {
+			far.Data[0][j] = float32(rng.NormFloat64() * 0.1)
+			near.Data[0][j] = 0.5*far.Data[0][j] + float32(rng.NormFloat64()*0.01)
+			wantFar[0][j] = far.Data[0][j] * apmScale
+			want[0][j] = near.Data[0][j] * apmScale
+		}
+		require.NoError(t, canceller.AnalyzeRender(wantFar))
+		require.NoError(t, suppressor.Analyze(want))
+		require.NoError(t, canceller.ProcessCapture(want))
+		require.NoError(t, suppressor.Process(want))
+		scaleDown(want)
+
+		require.NoError(t, proc.ProcessReverseStream(far))
+		require.NoError(t, proc.ProcessStream(near))
+		require.Equal(t, want[0], near.Data[0], "frame %d", i)
 	}
 }

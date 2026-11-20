@@ -219,18 +219,20 @@ func (p *Processor) processBands(data [][]float32) error {
 // on whatever per-channel buffers the caller supplies (the full-band
 // signal at 16 kHz, or band 0 at 32/48 kHz).
 func (p *Processor) processInner(channels [][]float32) error {
+	// Upstream analyzes the noise before the echo canceller changes the
+	// signal.
+	if p.ns != nil {
+		if err := p.ns.Analyze(channels); err != nil {
+			return err
+		}
+	}
 	if p.aec != nil {
 		if err := p.aec.ProcessCapture(channels); err != nil {
 			return err
 		}
 	}
 	if p.ns != nil {
-		if err := p.ns.Analyze(channels); err != nil {
-			return err
-		}
-		if err := p.ns.Process(channels); err != nil {
-			return err
-		}
+		return p.ns.Process(channels)
 	}
 
 	return nil
