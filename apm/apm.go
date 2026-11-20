@@ -53,22 +53,13 @@ type Processor struct {
 
 // New constructs a Processor.
 func New(cfg Config) (*Processor, error) {
-	if cfg.NumChannels <= 0 {
-		return nil, fmt.Errorf("%w: %d", ErrInvalidChannels, cfg.NumChannels)
-	}
-	if !cfg.SampleRate.Valid() {
-		return nil, fmt.Errorf("%w: %d", ErrInvalidSampleRate, cfg.SampleRate)
-	}
-	if cfg.ReverseSampleRate == 0 {
-		cfg.ReverseSampleRate = cfg.SampleRate
-	}
-	if cfg.ReverseNumChannels == 0 {
-		cfg.ReverseNumChannels = cfg.NumChannels
+	cfg, err := resolveConfig(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	proc := &Processor{cfg: cfg}
 
-	var err error
 	proc.splitCapture, proc.captureBands, err = newSplitter(cfg.SampleRate, cfg.NumChannels)
 	if err != nil {
 		return nil, fmt.Errorf("apm: splitting filter: %w", err)
@@ -89,6 +80,35 @@ func New(cfg Config) (*Processor, error) {
 	}
 
 	return proc, nil
+}
+
+// resolveConfig fills in the reverse stream defaults and validates cfg.
+func resolveConfig(cfg Config) (Config, error) {
+	if cfg.NumChannels <= 0 {
+		return cfg, fmt.Errorf("%w: %d", ErrInvalidChannels, cfg.NumChannels)
+	}
+	if !cfg.SampleRate.Valid() {
+		return cfg, fmt.Errorf("%w: %d", ErrInvalidSampleRate, cfg.SampleRate)
+	}
+	if cfg.ReverseSampleRate == 0 {
+		cfg.ReverseSampleRate = cfg.SampleRate
+	}
+	if cfg.ReverseNumChannels == 0 {
+		cfg.ReverseNumChannels = cfg.NumChannels
+	}
+	if !cfg.ReverseSampleRate.Valid() {
+		return cfg, fmt.Errorf("%w: reverse %d", ErrInvalidSampleRate, cfg.ReverseSampleRate)
+	}
+	if cfg.ReverseNumChannels < 0 {
+		return cfg, fmt.Errorf("%w: reverse %d", ErrInvalidChannels, cfg.ReverseNumChannels)
+	}
+	// The echo canceller pairs each capture channel with one render channel.
+	if cfg.AEC.Enabled && cfg.ReverseNumChannels != cfg.NumChannels {
+		return cfg, fmt.Errorf("%w: echo cancellation needs %d reverse channels, got %d",
+			ErrInvalidChannels, cfg.NumChannels, cfg.ReverseNumChannels)
+	}
+
+	return cfg, nil
 }
 
 // newSplitter returns a band splitting filter and its buffers for 32 and

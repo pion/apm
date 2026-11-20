@@ -99,3 +99,35 @@ func TestNew_RejectsUnsupportedSampleRate(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidSampleRate, "rate %d", rate)
 	}
 }
+
+func TestNew_ValidatesReverseStream(t *testing.T) {
+	cfg := DefaultConfig(Rate16k, 1)
+	cfg.ReverseSampleRate = 8000
+	_, err := New(cfg)
+	assert.ErrorIs(t, err, ErrInvalidSampleRate)
+
+	cfg = DefaultConfig(Rate16k, 1)
+	cfg.ReverseNumChannels = -1
+	_, err = New(cfg)
+	assert.ErrorIs(t, err, ErrInvalidChannels)
+
+	cfg = DefaultConfig(Rate16k, 1)
+	cfg.ReverseNumChannels = 2
+	_, err = New(cfg)
+	assert.NoError(t, err, "channel counts may differ without echo cancellation")
+
+	cfg.AEC.Enabled = true
+	_, err = New(cfg)
+	assert.ErrorIs(t, err, ErrInvalidChannels)
+}
+
+func TestProcessor_MixedRatesWithAEC(t *testing.T) {
+	cfg := DefaultConfig(Rate48k, 1)
+	cfg.ReverseSampleRate = Rate16k
+	cfg.AEC.Enabled = true
+	proc, err := New(cfg)
+	require.NoError(t, err)
+
+	require.NoError(t, proc.ProcessReverseStream(NewFrame(Rate16k, 1)))
+	require.NoError(t, proc.ProcessStream(NewFrame(Rate48k, 1)))
+}
