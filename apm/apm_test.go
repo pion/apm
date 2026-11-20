@@ -54,7 +54,6 @@ func TestSamplesPerFrame(t *testing.T) {
 		rate SampleRate
 		want int
 	}{
-		{Rate8k, 80},
 		{Rate16k, 160},
 		{Rate32k, 320},
 		{Rate48k, 480},
@@ -91,5 +90,12 @@ func TestProcessReverseStream_LeavesFrameUnchanged(t *testing.T) {
 
 		require.NoError(t, proc.ProcessReverseStream(far))
 		assert.Equal(t, want, far.Data[0], "rate %d", rate)
+	}
+}
+
+func TestNew_RejectsUnsupportedSampleRate(t *testing.T) {
+	for _, rate := range []SampleRate{0, 8000, 44100} {
+		_, err := New(DefaultConfig(rate, 1))
+		assert.ErrorIs(t, err, ErrInvalidSampleRate, "rate %d", rate)
 	}
 }

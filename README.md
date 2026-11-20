@@ -34,7 +34,7 @@ _ = proc.ProcessReverseStream(farEnd) // audio sent to the speaker
 _ = proc.ProcessStream(nearEnd)       // microphone audio, processed in place
 ```
 
-Supported rates are 8, 16, 32 and 48 kHz. At 32 and 48 kHz the modules run on
+Supported rates are 16, 32 and 48 kHz. At 32 and 48 kHz the modules run on
 the lowest 16 kHz band.
 
 ### Roadmap
