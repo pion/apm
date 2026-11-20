@@ -9,6 +9,8 @@ import (
 	"math/rand/v2"
 	"testing"
 
+	"github.com/pion/apm/hpf"
+	"github.com/pion/apm/internal/subband"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -144,5 +146,42 @@ func TestProcessor_AGCAppliesGainToUpperBands(t *testing.T) {
 		}
 		gainDB := 10 * math.Log10(outEnergy/inEnergy)
 		assert.InDelta(t, 6.0, gainDB, 1.0, "rate %d", tc.rate)
+	}
+}
+
+// The high-pass filter runs on the full band with the coefficients of the
+// stream rate, before the signal is split into bands.
+func TestProcessor_HPFFiltersFullBand(t *testing.T) {
+	for _, tc := range []struct {
+		rate     SampleRate
+		numBands int
+	}{{Rate32k, 2}, {Rate48k, 3}} {
+		cfg := DefaultConfig(tc.rate, 1)
+		cfg.HPF.Enabled = true
+		proc, err := New(cfg)
+		require.NoError(t, err)
+
+		filter, err := hpf.New(int(tc.rate), 1)
+		require.NoError(t, err)
+		splitter, err := subband.NewSplittingFilter(1, tc.numBands)
+		require.NoError(t, err)
+		bands := allocBandBuffers(tc.numBands, 1)
+
+		rng := rand.New(rand.NewPCG(7, 0)) //nolint:gosec // Deterministic test signal.
+		for i := range 20 {
+			frame := NewFrame(tc.rate, 1)
+			want := [][]float32{make([]float32, tc.rate.SamplesPerFrame())}
+			for j := range frame.Data[0] {
+				frame.Data[0][j] = float32(rng.NormFloat64() * 0.1)
+				want[0][j] = frame.Data[0][j] * apmScale
+			}
+			require.NoError(t, filter.Process(want))
+			require.NoError(t, splitter.Analysis(want, bands))
+			require.NoError(t, splitter.Synthesis(bands, want))
+			scaleDown(want)
+
+			require.NoError(t, proc.ProcessStream(frame))
+			require.Equal(t, want[0], frame.Data[0], "rate %d, frame %d", tc.rate, i)
+		}
 	}
 }

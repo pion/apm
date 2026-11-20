@@ -135,8 +135,8 @@ func newSplitter(rate SampleRate, numChannels int) (*subband.SplittingFilter, []
 func (p *Processor) initModules(innerRate int) error {
 	cfg := p.cfg
 	if cfg.HPF.Enabled {
-		// Upstream uses 16 kHz HPF coefficients in the split-band path.
-		f, err := hpf.New(innerRate, cfg.NumChannels)
+		// Upstream filters the full band by default, before the split.
+		f, err := hpf.New(int(cfg.SampleRate), cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: hpf: %w", err)
 		}
@@ -184,6 +184,11 @@ func (p *Processor) ProcessStream(near *Frame) error {
 	scaleUp(near.Data)
 	defer scaleDown(near.Data)
 
+	if p.hpf != nil {
+		if err := p.hpf.Process(near.Data); err != nil {
+			return err
+		}
+	}
 	if err := p.processBands(near.Data); err != nil {
 		return err
 	}
@@ -214,11 +219,6 @@ func (p *Processor) processBands(data [][]float32) error {
 // on whatever per-channel buffers the caller supplies (the full-band
 // signal at 16 kHz, or band 0 at 32/48 kHz).
 func (p *Processor) processInner(channels [][]float32) error {
-	if p.hpf != nil {
-		if err := p.hpf.Process(channels); err != nil {
-			return err
-		}
-	}
 	if p.aec != nil {
 		if err := p.aec.ProcessCapture(channels); err != nil {
 			return err
@@ -239,18 +239,18 @@ func (p *Processor) processInner(channels [][]float32) error {
 const apmScale = 32768.0
 
 func scaleUp(data [][]float32) {
-	for c := range data {
-		for i := range data[c] {
-			data[c][i] *= apmScale
+	for _, channel := range data {
+		for i := range channel {
+			channel[i] *= apmScale
 		}
 	}
 }
 
 func scaleDown(data [][]float32) {
 	const inv = 1.0 / apmScale
-	for c := range data {
-		for i := range data[c] {
-			data[c][i] *= inv
+	for _, channel := range data {
+		for i := range channel {
+			channel[i] *= inv
 		}
 	}
 }
