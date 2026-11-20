@@ -350,7 +350,7 @@ func bytesToFloat32(b []byte) []float32 {
 // Reader decodes are written. Tests use it to build small fixtures.
 func WriteEvent(w io.Writer, ev *Event) error {
 	payload := encodeEvent(ev)
-	if len(payload) > math.MaxUint32 {
+	if uint64(len(payload)) > math.MaxUint32 {
 		return errEventTooLarge
 	}
 	var hdr [4]byte
