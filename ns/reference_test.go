@@ -120,7 +120,7 @@ func TestSuppressor_MatchesUpstream(t *testing.T) {
 			for frame := 0; frame <= lastFrame; frame++ {
 				signal.fill(frame, bands)
 				require.NoError(t, suppressor.Analyze(bands[0]))
-				require.NoError(t, suppressor.Process(bands[0]))
+				require.NoError(t, suppressor.Process(bands[0], bands[1:]...))
 				for _, ref := range frames[frame] {
 					assert.InDeltaSlice(t, ref.samples, bands[ref.band][ref.channel], referenceDelta,
 						"frame %d, channel %d, band %d", frame, ref.channel, ref.band)

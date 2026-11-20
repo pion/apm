@@ -16,8 +16,41 @@ import (
 func TestNewSuppressor_RejectsBadRate(t *testing.T) {
 	_, err := NewSuppressor(DefaultConfig(), 8000, 1)
 	assert.ErrorIs(t, err, ErrUnsupportedSampleRate)
-	_, err = NewSuppressor(DefaultConfig(), 48000, 1)
-	assert.ErrorIs(t, err, ErrUnsupportedSampleRate, "multi-band not yet supported")
+	_, err = NewSuppressor(DefaultConfig(), 44100, 1)
+	assert.ErrorIs(t, err, ErrUnsupportedSampleRate)
+}
+
+func TestSuppressor_RejectsWrongBandCount(t *testing.T) {
+	frame := func() [][]float32 { return [][]float32{make([]float32, nsFrameSize)} }
+
+	sup, err := NewSuppressor(DefaultConfig(), 16000, 1)
+	require.NoError(t, err)
+	assert.ErrorIs(t, sup.Process(frame(), frame()), ErrInvalidBandCount)
+
+	sup, err = NewSuppressor(DefaultConfig(), 48000, 1)
+	require.NoError(t, err)
+	assert.ErrorIs(t, sup.Process(frame()), ErrInvalidBandCount)
+	assert.ErrorIs(t, sup.Process(frame(), frame(), [][]float32{make([]float32, 80)}), ErrInvalidFrameSize)
+	assert.NoError(t, sup.Process(frame(), frame(), frame()))
+}
+
+// The upper bands come out delayed by the overlap of the filter bank.
+func TestDelaySignal(t *testing.T) {
+	var memory [overlapSize]float32
+	var delayed [nsFrameSize]float32
+	input := make([]float32, 3*nsFrameSize)
+	for i := range input {
+		input[i] = float32(i + 1)
+	}
+
+	var output []float32
+	for start := 0; start < len(input); start += nsFrameSize {
+		delaySignal(input[start:start+nsFrameSize], &memory, &delayed)
+		output = append(output, delayed[:]...)
+	}
+
+	assert.Equal(t, make([]float32, overlapSize), output[:overlapSize])
+	assert.Equal(t, input[:len(input)-overlapSize], output[overlapSize:])
 }
 
 func TestSuppressor_FrameLength(t *testing.T) {

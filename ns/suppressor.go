@@ -10,12 +10,14 @@ import (
 )
 
 var (
-	// ErrUnsupportedSampleRate is returned for sample rates other than 16 kHz.
+	// ErrUnsupportedSampleRate is returned for rates other than 16, 32 and 48 kHz.
 	ErrUnsupportedSampleRate = errors.New("ns: unsupported sample rate")
 	// ErrInvalidChannelCount is returned when the channel count is not positive or does not match.
 	ErrInvalidChannelCount = errors.New("ns: invalid channel count")
 	// ErrInvalidFrameSize is returned when a channel does not hold one 10 ms frame.
 	ErrInvalidFrameSize = errors.New("ns: invalid frame size")
+	// ErrInvalidBandCount is returned when the upper bands do not match the sample rate.
+	ErrInvalidBandCount = errors.New("ns: invalid band count")
 )
 
 type channelState struct {
@@ -26,14 +28,16 @@ type channelState struct {
 	analyzeAnalysisMemory  [overlapSize]float32
 	processAnalysisMemory  [overlapSize]float32
 	processSynthesisMemory [overlapSize]float32
+	processDelayMemory     [][overlapSize]float32 // one per upper band
 }
 
-func newChannelState(sp *suppressionParams) *channelState {
+func newChannelState(sp *suppressionParams, numBands int) *channelState {
 	ne := newNoiseEstimator(sp)
 	cs := &channelState{
-		speechProb:     newSpeechProbabilityEstimator(),
-		wienerFilter:   newWienerFilter(sp),
-		noiseEstimator: ne,
+		speechProb:         newSpeechProbabilityEstimator(),
+		wienerFilter:       newWienerFilter(sp),
+		noiseEstimator:     ne,
+		processDelayMemory: make([][overlapSize]float32, numBands-1),
 	}
 	for i := range cs.prevAnalysisSignalSpec {
 		cs.prevAnalysisSignalSpec[i] = 1
@@ -52,20 +56,22 @@ type filterBankState struct {
 // instance per stream. Not safe for concurrent use.
 type Suppressor struct {
 	params            suppressionParams
+	numBands          int
 	numAnalyzedFrames int32
 	fft               *fftWrapper
 	captureOutputUsed bool
 	channels          []*channelState
 	filterBankStates  []filterBankState
+	upperBandGains    []float32
 	energiesBefore    []float32
 	gainAdjustments   []float32
 }
 
-// NewSuppressor constructs a Suppressor. Only 16 kHz is supported; calls
-// at other rates return an error.
+// NewSuppressor constructs a Suppressor for a 16, 32 or 48 kHz stream.
+// The stream is processed as one, two or three 16 kHz bands.
 func NewSuppressor(cfg Config, sampleRateHz, numChannels int) (*Suppressor, error) {
-	if sampleRateHz != 16000 {
-		return nil, fmt.Errorf("%w: %d Hz, want 16000", ErrUnsupportedSampleRate, sampleRateHz)
+	if sampleRateHz != 16000 && sampleRateHz != 32000 && sampleRateHz != 48000 {
+		return nil, fmt.Errorf("%w: %d Hz", ErrUnsupportedSampleRate, sampleRateHz)
 	}
 	if numChannels <= 0 {
 		return nil, fmt.Errorf("%w: %d", ErrInvalidChannelCount, numChannels)
@@ -73,16 +79,18 @@ func NewSuppressor(cfg Config, sampleRateHz, numChannels int) (*Suppressor, erro
 	params := newSuppressionParams(cfg.TargetLevel)
 	sup := &Suppressor{
 		params:            params,
+		numBands:          sampleRateHz / 16000,
 		numAnalyzedFrames: -1,
 		fft:               newFFT(),
 		captureOutputUsed: true,
 		channels:          make([]*channelState, numChannels),
 		filterBankStates:  make([]filterBankState, numChannels),
+		upperBandGains:    make([]float32, numChannels),
 		energiesBefore:    make([]float32, numChannels),
 		gainAdjustments:   make([]float32, numChannels),
 	}
 	for c := range sup.channels {
-		sup.channels[c] = newChannelState(&sup.params)
+		sup.channels[c] = newChannelState(&sup.params, sup.numBands)
 	}
 
 	return sup, nil
@@ -95,8 +103,8 @@ func (s *Suppressor) SetCaptureOutputUsed(used bool) { s.captureOutputUsed = use
 // NumChannels returns the configured channel count.
 func (s *Suppressor) NumChannels() int { return len(s.channels) }
 
-// Analyze adapts the noise model. audio is [channel][sample] with 160
-// samples per channel (one 10 ms frame at 16 kHz). The audio is read but
+// Analyze adapts the noise model. audio is the lowest band, indexed
+// [channel][sample] with 160 samples per channel. The audio is read but
 // not modified.
 func (s *Suppressor) Analyze(audio [][]float32) error {
 	if err := s.checkFrames(audio); err != nil {
@@ -177,11 +185,20 @@ func (s *Suppressor) Analyze(audio [][]float32) error {
 	return nil
 }
 
-// Process applies suppression in place. audio is [channel][sample] with
-// 160 samples per channel. Output replaces input.
-func (s *Suppressor) Process(audio [][]float32) error {
+// Process applies suppression in place. audio is the lowest band and
+// upperBands the one or two bands above it at 32 and 48 kHz, each indexed
+// [channel][sample] with 160 samples per channel.
+func (s *Suppressor) Process(audio [][]float32, upperBands ...[][]float32) error {
 	if err := s.checkFrames(audio); err != nil {
 		return err
+	}
+	if len(upperBands) != s.numBands-1 {
+		return fmt.Errorf("%w: got %d upper bands, want %d", ErrInvalidBandCount, len(upperBands), s.numBands-1)
+	}
+	for _, band := range upperBands {
+		if err := s.checkFrames(band); err != nil {
+			return err
+		}
 	}
 
 	s.updateFilters(audio)
@@ -190,8 +207,33 @@ func (s *Suppressor) Process(audio [][]float32) error {
 	}
 	s.applyFilter()
 	s.synthesize(audio)
+	s.processUpperBands(upperBands)
 
 	return nil
+}
+
+// processUpperBands delays the upper bands to match the delay of the
+// filter bank applied to the lowest band and applies the time-domain
+// noise-attenuating gain.
+func (s *Suppressor) processUpperBands(upperBands [][][]float32) {
+	if len(upperBands) == 0 {
+		return
+	}
+	upperBandGain := s.upperBandGains[0]
+	for _, gain := range s.upperBandGains[1:] {
+		upperBandGain = min(upperBandGain, gain)
+	}
+
+	var delayed [nsFrameSize]float32
+	for b, band := range upperBands {
+		for c, frame := range band {
+			delaySignal(frame, &s.channels[c].processDelayMemory[b], &delayed)
+			for i := range frame {
+				frame[i] = upperBandGain * delayed[i]
+			}
+			clipToInt16Range(frame)
+		}
+	}
 }
 
 func (s *Suppressor) checkFrames(audio [][]float32) error {
@@ -209,12 +251,12 @@ func (s *Suppressor) checkFrames(audio [][]float32) error {
 
 // updateFilters analyzes each channel and updates its Wiener filter.
 func (s *Suppressor) updateFilters(audio [][]float32) {
-	for c := range audio {
-		fbs := &s.filterBankStates[c]
-		ch := s.channels[c]
-		formExtendedFrame(audio[c], &ch.processAnalysisMemory, &fbs.extendedFrame)
+	for index := range audio {
+		fbs := &s.filterBankStates[index]
+		ch := s.channels[index]
+		formExtendedFrame(audio[index], &ch.processAnalysisMemory, &fbs.extendedFrame)
 		applyFilterBankWindow(&fbs.extendedFrame)
-		s.energiesBefore[c] = computeEnergyOfExtended(&fbs.extendedFrame)
+		s.energiesBefore[index] = computeEnergyOfExtended(&fbs.extendedFrame)
 
 		s.fft.forward(&fbs.extendedFrame, &fbs.real, &fbs.imag)
 
@@ -228,6 +270,16 @@ func (s *Suppressor) updateFilters(audio [][]float32) {
 			&ch.noiseEstimator.parametricSpec,
 			&signalSpec,
 		)
+
+		if s.numBands > 1 {
+			s.upperBandGains[index] = computeUpperBandsGain(
+				s.params.minimumAttenuatingGain,
+				&ch.wienerFilter.filter,
+				&ch.speechProb.speechProb,
+				&ch.prevAnalysisSignalSpec,
+				&signalSpec,
+			)
+		}
 	}
 }
 
@@ -325,6 +377,60 @@ func overlapAndAdd(extended *[fftSize]float32, overlapMemory *[overlapSize]float
 	}
 	copy(outputFrame[overlapSize:nsFrameSize], extended[overlapSize:nsFrameSize])
 	copy(overlapMemory[:], extended[nsFrameSize:])
+}
+
+// delaySignal matches DelaySignal: it produces the frame delayed by
+// overlapSize samples.
+func delaySignal(frame []float32, delayBuffer *[overlapSize]float32, delayed *[nsFrameSize]float32) {
+	const samplesFromFrame = nsFrameSize - overlapSize
+	copy(delayed[:], delayBuffer[:])
+	copy(delayed[overlapSize:], frame[:samplesFromFrame])
+	copy(delayBuffer[:], frame[samplesFromFrame:])
+}
+
+// computeUpperBandsGain matches ComputeUpperBandsGain: the attenuating
+// gain for the noise suppression of the upper bands.
+func computeUpperBandsGain(
+	minimumAttenuatingGain float32,
+	filter, speechProbability, prevAnalysisSignalSpectrum, signalSpectrum *[fftSizeBy2Plus1]float32,
+) float32 {
+	// Average speech prob and filter gain for the end of the lowest band.
+	const (
+		numAvgBins      = 32
+		oneByNumAvgBins = 1.0 / numAvgBins
+	)
+
+	var avgProbSpeech, avgFilterGain float32
+	for i := fftSizeBy2Plus1 - numAvgBins - 1; i < fftSizeBy2Plus1-1; i++ {
+		avgProbSpeech += speechProbability[i]
+		avgFilterGain += filter[i]
+	}
+	avgProbSpeech *= oneByNumAvgBins
+	avgFilterGain *= oneByNumAvgBins
+
+	// If the speech was suppressed by a component between Analyze and
+	// Process, an example being by an AEC, it should not be considered
+	// speech for the purpose of high band suppression. To that end, the
+	// speech probability is scaled accordingly.
+	var sumAnalysisSpectrum, sumProcessingSpectrum float32
+	for i := range fftSizeBy2Plus1 {
+		sumAnalysisSpectrum += prevAnalysisSignalSpectrum[i]
+		sumProcessingSpectrum += signalSpectrum[i]
+	}
+	avgProbSpeech *= sumProcessingSpectrum / sumAnalysisSpectrum
+
+	// Compute gain based on speech probability.
+	gain := 0.5 * (1 + tanh32(2*avgProbSpeech-1))
+
+	// Combine gain with low band gain.
+	if avgProbSpeech >= 0.5 {
+		gain = 0.25*gain + 0.75*avgFilterGain
+	} else {
+		gain = 0.5*gain + 0.5*avgFilterGain
+	}
+
+	// Make sure gain is within flooring range.
+	return min(max(gain, minimumAttenuatingGain), 1)
 }
 
 func computeEnergyOfExtended(x *[fftSize]float32) float32 {
