@@ -33,7 +33,7 @@ func newRenderDelayBuffer(filterLengthBlocks int) *renderDelayBuffer {
 		fftBuf:      newFftBuffer(size, 1),
 		spectrumBuf: newSpectrumBuffer(size, 1),
 	}
-	r.view = newRenderBuffer(r.spectrumBuf, r.fftBuf)
+	r.view = newRenderBuffer(newBlockBuffer(size, 1, 1), r.spectrumBuf, r.fftBuf)
 
 	return r
 }
