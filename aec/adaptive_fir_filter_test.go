@@ -14,11 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Port of AdaptiveFirFilterTest.FilterStatisticsAccess. The ERL part is
-// added with the port of ComputeErl.
+// Port of AdaptiveFirFilterTest.FilterStatisticsAccess.
 func TestAdaptiveFirFilter_FilterStatisticsAccess(t *testing.T) {
 	filter := newAdaptiveFirFilter(9, 9, 250, 1)
 	h2 := make([][kFftLengthBy2Plus1]float32, filter.maxFilterSizePartitions())
+
+	var erl [kFftLengthBy2Plus1]float32
+	computeErl(h2, &erl)
 	h2 = filter.computeFrequencyResponse(h2)
 	assert.Len(t, h2, 9)
 }
