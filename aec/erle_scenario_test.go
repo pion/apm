@@ -129,3 +129,10 @@ func erleScenarioCases() []struct{ numRender, numCapture int } {
 func erleScenarioSuffix(numRender, numCapture int) string {
 	return fmt.Sprintf(" %d %d", numRender, numCapture)
 }
+
+// erleScenarioDumpsSpectra tells whether the reference holds the spectra
+// of a block.
+func erleScenarioDumpsSpectra(index int) bool {
+	return index%50 == 49 || (index >= 200 && index < 220 && index%4 == 0) ||
+		(index >= 690 && index < 760 && index%5 == 0) || (index >= 1000 && index < 1120 && index%10 == 0)
+}
