@@ -110,31 +110,6 @@ func TestMatchedFilter_MatchesUpstream(t *testing.T) {
 	}
 }
 
-// The filter bank finds the delay between render and capture, in the
-// filter that covers it. The reference scenario reads the render buffer
-// one sub-block late, so the lag is one sub-block short of the delay.
-func TestMatchedFilter_FindsDelay(t *testing.T) {
-	for _, tc := range []struct{ delay, wantFilter int }{{100, 0}, {700, 1}, {1200, 2}} {
-		filter := referenceMatchedFilter()
-		lags := runReferenceScenario(filter, tc.delay, -1)
-
-		assert.InDelta(t, tc.delay-referenceSubBlockSize, lags[len(lags)-2], 0, "delay %d", tc.delay)
-		assert.Equal(t, tc.wantFilter, filter.lastDetectedBestLagFilter, "delay %d", tc.delay)
-	}
-}
-
-// Energy that arrives before the main peak moves the pre-echo lag ahead
-// of the lag.
-func TestMatchedFilter_DetectsPreEcho(t *testing.T) {
-	filter := referenceMatchedFilter()
-	lags := runReferenceScenario(filter, 300, 280)
-
-	lag, preEchoLag := lags[len(lags)-2], lags[len(lags)-1]
-	assert.InDelta(t, 300-referenceSubBlockSize, lag, 0)
-	assert.Less(t, preEchoLag, lag)
-	assert.InDelta(t, 280-referenceSubBlockSize, preEchoLag, kAccumulatedErrorSubSampleRate)
-}
-
 func TestMatchedFilter_Reset(t *testing.T) {
 	filter := referenceMatchedFilter()
 	runReferenceScenario(filter, 100, -1)
@@ -150,12 +125,218 @@ func TestMatchedFilter_Reset(t *testing.T) {
 	assert.Equal(t, 5*24*16+32*16, filter.maxFilterLag())
 }
 
+// Port of MatchedFilter.MaxSquarePeakIndex.
 func TestMaxSquarePeakIndex(t *testing.T) {
-	assert.Equal(t, 0, maxSquarePeakIndex(nil))
-	assert.Equal(t, 0, maxSquarePeakIndex([]float32{3}))
-	assert.Equal(t, 1, maxSquarePeakIndex([]float32{1, -2}))
-	assert.Equal(t, 2, maxSquarePeakIndex([]float32{1, -2, 3}))
-	assert.Equal(t, 3, maxSquarePeakIndex([]float32{1, 2, 3, -4, 1}))
-	// On a tie the even index wins, as upstream.
-	assert.Equal(t, 2, maxSquarePeakIndex([]float32{0, 0, 5, 5, 0, 0}))
+	random := newTestRandom(42)
+	const (
+		maxLength              = 128
+		numIterationsPerLength = 256
+	)
+	for length := 1; length < maxLength; length++ {
+		values := make([]float32, length)
+		for range numIterationsPerLength {
+			randomizeSampleVector(random, values)
+
+			want := 0
+			for i, value := range values {
+				if values[want]*values[want] < value*value {
+					want = i
+				}
+			}
+			require.Equal(t, want, maxSquarePeakIndex(values), "length %d", length)
+		}
+	}
+}
+
+// The upstream tests use 10 matched filters.
+const testNumMatchedFilters = 10
+
+func newTestMatchedFilter(cfg delayConfig, subBlockSize int, detectPreEcho bool) *matchedFilter {
+	return newMatchedFilter(matchedFilterConfig{
+		subBlockSize:            subBlockSize,
+		windowSizeSubBlocks:     kMatchedFilterWindowSizeSubBlocks,
+		numMatchedFilters:       testNumMatchedFilters,
+		alignmentShiftSubBlocks: kMatchedFilterAlignmentShiftSizeSubBlocks,
+		excitationLimit:         150,
+		smoothingFast:           cfg.delayEstimateSmoothing,
+		smoothingSlow:           cfg.delayEstimateSmoothingDelayFound,
+		matchingFilterThreshold: cfg.delayCandidateDetectionThreshold,
+		detectPreEcho:           detectPreEcho,
+	})
+}
+
+// forEachMatchedFilterVariant runs test for both values of the
+// detect_pre_echo parameter of the upstream tests and for both
+// downsampling factors.
+func forEachMatchedFilterVariant(t *testing.T, test func(t *testing.T, detectPreEcho bool, downSamplingFactor int)) {
+	t.Helper()
+	for _, detectPreEcho := range []bool{true, false} {
+		for _, downSamplingFactor := range []int{4, 8} {
+			t.Run(fmt.Sprintf("pre_echo_%t_ds%d", detectPreEcho, downSamplingFactor), func(t *testing.T) {
+				test(t, detectPreEcho, downSamplingFactor)
+			})
+		}
+	}
+}
+
+// Port of MatchedFilterTest.LagEstimation: the matched filter produces
+// proper lag estimates for artificially delayed signals.
+func TestMatchedFilter_LagEstimation(t *testing.T) {
+	const sampleRateHz = 48000
+	forEachMatchedFilterVariant(t, func(t *testing.T, detectPreEcho bool, downSamplingFactor int) {
+		t.Helper()
+		random := newTestRandom(42)
+		subBlockSize := kBlockSize / downSamplingFactor
+		render := newBlock(numBandsForRate(sampleRateHz), 1)
+		capture := make([]float32, kBlockSize)
+		downsampledCapture := make([]float32, subBlockSize)
+
+		for _, delaySamples := range []int{5, 64, 150, 200, 800, 1000} {
+			config := defaultEchoCanceller3Config()
+			config.delay.downSamplingFactor = downSamplingFactor
+			config.delay.numFilters = testNumMatchedFilters
+			captureDecimator := newDecimator(downSamplingFactor)
+			signalDelayBuffer := newTestDelayBuffer(downSamplingFactor * delaySamples)
+			filter := newTestMatchedFilter(config.delay, subBlockSize, detectPreEcho)
+			renderDelayBuffer := newRenderDelayBufferImpl(config, sampleRateHz, 1)
+
+			// Analyze the correlation between render and capture.
+			for k := range 600 + delaySamples/subBlockSize {
+				randomizeSampleVector(random, render.data)
+				signalDelayBuffer.delay(render.view(0, 0), capture)
+				renderDelayBuffer.insert(render)
+				if k == 0 {
+					renderDelayBuffer.reset()
+				}
+				renderDelayBuffer.prepareCaptureProcessing()
+				captureDecimator.decimate(capture, downsampledCapture)
+				filter.update(renderDelayBuffer.getDownsampledRenderBuffer(), downsampledCapture, false)
+			}
+
+			// Verify that the expected most accurate lag estimate is correct.
+			estimate, ok := filter.bestLagEstimate()
+			require.True(t, ok, "delay %d", delaySamples)
+			assert.Equal(t, lagEstimate{lag: delaySamples, preEchoLag: delaySamples}, estimate)
+		}
+	})
+}
+
+// Port of MatchedFilterTest.PreEchoEstimation.
+func TestMatchedFilter_PreEchoEstimation(t *testing.T) {
+	const sampleRateHz = 48000
+	forEachMatchedFilterVariant(t, func(t *testing.T, detectPreEcho bool, downSamplingFactor int) {
+		t.Helper()
+		random := newTestRandom(42)
+		subBlockSize := kBlockSize / downSamplingFactor
+		render := newBlock(numBandsForRate(sampleRateHz), 1)
+		capture := make([]float32, kBlockSize)
+		captureWithPreEcho := make([]float32, kBlockSize)
+		downsampledCapture := make([]float32, subBlockSize)
+
+		// 20 ms and 50 ms.
+		preEchoDelaySamples := 320 / downSamplingFactor
+		echoDelaySamples := 800 / downSamplingFactor
+		config := defaultEchoCanceller3Config()
+		config.delay.downSamplingFactor = downSamplingFactor
+		config.delay.numFilters = testNumMatchedFilters
+		captureDecimator := newDecimator(downSamplingFactor)
+		signalEchoDelayBuffer := newTestDelayBuffer(downSamplingFactor * echoDelaySamples)
+		signalPreEchoDelayBuffer := newTestDelayBuffer(downSamplingFactor * preEchoDelaySamples)
+		filter := newTestMatchedFilter(config.delay, subBlockSize, detectPreEcho)
+		renderDelayBuffer := newRenderDelayBufferImpl(config, sampleRateHz, 1)
+
+		// Analyze the correlation between render and capture.
+		for k := range 600 + echoDelaySamples/subBlockSize {
+			randomizeSampleVector(random, render.data)
+			signalEchoDelayBuffer.delay(render.view(0, 0), capture)
+			signalPreEchoDelayBuffer.delay(render.view(0, 0), captureWithPreEcho)
+			for l := range capture {
+				const gainPreEcho = 0.8
+				capture[l] += gainPreEcho * captureWithPreEcho[l]
+			}
+			renderDelayBuffer.insert(render)
+			if k == 0 {
+				renderDelayBuffer.reset()
+			}
+			renderDelayBuffer.prepareCaptureProcessing()
+			captureDecimator.decimate(capture, downsampledCapture)
+			filter.update(renderDelayBuffer.getDownsampledRenderBuffer(), downsampledCapture, false)
+		}
+
+		// Verify that the expected most accurate lag estimate is correct.
+		estimate, ok := filter.bestLagEstimate()
+		require.True(t, ok)
+		assert.Equal(t, echoDelaySamples, estimate.lag)
+		if detectPreEcho {
+			// The pre echo delay is estimated in a subsampled domain and a
+			// larger error is allowed.
+			assert.InDelta(t, preEchoDelaySamples, estimate.preEchoLag, 4)
+		} else {
+			// The pre echo delay falls back to the highest matched filter
+			// peak when its detection is disabled.
+			assert.Equal(t, echoDelaySamples, estimate.preEchoLag)
+		}
+	})
+}
+
+// Port of MatchedFilterTest.LagNotReliableForUncorrelatedRenderAndCapture.
+func TestMatchedFilter_LagNotReliableForUncorrelatedRenderAndCapture(t *testing.T) {
+	const sampleRateHz = 48000
+	forEachMatchedFilterVariant(t, func(t *testing.T, detectPreEcho bool, downSamplingFactor int) {
+		t.Helper()
+		random := newTestRandom(42)
+		config := defaultEchoCanceller3Config()
+		config.delay.downSamplingFactor = downSamplingFactor
+		config.delay.numFilters = testNumMatchedFilters
+		subBlockSize := kBlockSize / downSamplingFactor
+
+		render := newBlock(numBandsForRate(sampleRateHz), 1)
+		capture := make([]float32, subBlockSize)
+		renderDelayBuffer := newRenderDelayBufferImpl(config, sampleRateHz, 1)
+		filter := newTestMatchedFilter(config.delay, subBlockSize, detectPreEcho)
+
+		// Analyze the correlation between render and capture.
+		for range 100 {
+			randomizeSampleVector(random, render.view(0, 0))
+			randomizeSampleVector(random, capture)
+			renderDelayBuffer.insert(render)
+			filter.update(renderDelayBuffer.getDownsampledRenderBuffer(), capture, false)
+		}
+
+		// Verify that no lag estimates are reliable.
+		_, ok := filter.bestLagEstimate()
+		assert.False(t, ok)
+	})
+}
+
+// Port of MatchedFilterTest.LagNotUpdatedForLowLevelRender.
+func TestMatchedFilter_LagNotUpdatedForLowLevelRender(t *testing.T) {
+	const sampleRateHz = 48000
+	forEachMatchedFilterVariant(t, func(t *testing.T, detectPreEcho bool, downSamplingFactor int) {
+		t.Helper()
+		random := newTestRandom(42)
+		subBlockSize := kBlockSize / downSamplingFactor
+		render := newBlock(numBandsForRate(sampleRateHz), 1)
+		capture := make([]float32, kBlockSize)
+		downsampledCapture := make([]float32, subBlockSize)
+		config := defaultEchoCanceller3Config()
+		filter := newTestMatchedFilter(config.delay, subBlockSize, detectPreEcho)
+		renderDelayBuffer := newRenderDelayBufferImpl(config, sampleRateHz, 1)
+		captureDecimator := newDecimator(downSamplingFactor)
+
+		// Analyze the correlation between render and capture.
+		for range 100 {
+			randomizeSampleVector(random, render.view(0, 0))
+			for i := range render.view(0, 0) {
+				render.view(0, 0)[i] *= 149.0 / 32767.0
+			}
+			copy(capture, render.view(0, 0))
+			captureDecimator.decimate(capture, downsampledCapture)
+			filter.update(renderDelayBuffer.getDownsampledRenderBuffer(), downsampledCapture, false)
+		}
+
+		// Verify that no lag estimate has been produced.
+		_, ok := filter.bestLagEstimate()
+		assert.False(t, ok)
+	})
 }
