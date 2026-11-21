@@ -177,6 +177,7 @@ type echoCanceller3Config struct {
 
 	echoAudibility     echoAudibilityConfig
 	echoRemovalControl echoRemovalControlConfig
+	echoModel          echoModelConfig
 }
 
 // defaultEchoCanceller3Config returns the upstream defaults.
@@ -190,6 +191,7 @@ func defaultEchoCanceller3Config() echoCanceller3Config {
 		renderLevels: defaultRenderLevelsConfig(),
 
 		echoAudibility: defaultEchoAudibilityConfig(),
+		echoModel:      defaultEchoModelConfig(),
 	}
 }
 
@@ -268,5 +270,31 @@ func defaultEchoAudibilityConfig() echoAudibilityConfig {
 		audibilityThresholdLf: 10,
 		audibilityThresholdMf: 10,
 		audibilityThresholdHf: 10,
+	}
+}
+
+// echoModelConfig mirrors EchoCanceller3Config::EchoModel.
+type echoModelConfig struct {
+	noiseFloorHold             int
+	minNoiseFloorPower         float32
+	stationaryGateSlope        float32
+	noiseGatePower             float32
+	noiseGateSlope             float32
+	renderPreWindowSize        int
+	renderPostWindowSize       int
+	modelReverbInNonlinearMode bool
+}
+
+// defaultEchoModelConfig returns the upstream defaults.
+func defaultEchoModelConfig() echoModelConfig {
+	return echoModelConfig{
+		noiseFloorHold:             50,
+		minNoiseFloorPower:         1638400,
+		stationaryGateSlope:        10,
+		noiseGatePower:             27509.42,
+		noiseGateSlope:             0.3,
+		renderPreWindowSize:        1,
+		renderPostWindowSize:       1,
+		modelReverbInNonlinearMode: true,
 	}
 }

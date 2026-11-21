@@ -160,3 +160,17 @@ func TestDefaultEchoAudibilityConfig_MatchesUpstream(t *testing.T) {
 		boolValue(cfg.useStationarityPropertiesAtInit),
 	})
 }
+
+func TestDefaultEchoModelConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultEchoModelConfig()
+	assert.Equal(t, loadConfigReference(t)["echo_model"], []float32{
+		float32(cfg.noiseFloorHold),
+		cfg.minNoiseFloorPower,
+		cfg.stationaryGateSlope,
+		cfg.noiseGatePower,
+		cfg.noiseGateSlope,
+		float32(cfg.renderPreWindowSize),
+		float32(cfg.renderPostWindowSize),
+		boolValue(cfg.modelReverbInNonlinearMode),
+	})
+}
