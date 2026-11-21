@@ -174,3 +174,62 @@ func TestDefaultEchoModelConfig_MatchesUpstream(t *testing.T) {
 		boolValue(cfg.modelReverbInNonlinearMode),
 	})
 }
+
+func suppressorTuningValues(tuning suppressorTuning) []float32 {
+	return []float32{
+		tuning.maskLf.enrTransparent, tuning.maskLf.enrSuppress, tuning.maskLf.emrTransparent,
+		tuning.maskHf.enrTransparent, tuning.maskHf.enrSuppress, tuning.maskHf.emrTransparent,
+		tuning.maxIncFactor, tuning.maxDecFactorLf,
+	}
+}
+
+func TestDefaultSuppressorConfig_MatchesUpstream(t *testing.T) {
+	reference := loadConfigReference(t)
+	cfg := defaultSuppressorConfig()
+
+	assert.Equal(t, reference["suppressor"], []float32{
+		float32(cfg.nearendAverageBlocks),
+		boolValue(cfg.lfSmoothingDuringInitialPhase),
+		float32(cfg.lastPermanentLfSmoothingBand),
+		float32(cfg.lastLfSmoothingBand),
+		float32(cfg.lastLfBand),
+		float32(cfg.firstHfBand),
+		boolValue(cfg.useSubbandNearendDetection),
+		cfg.floorFirstIncrease,
+		boolValue(cfg.conservativeHfSuppression),
+	})
+	assert.Equal(t, reference["suppressor_normal_tuning"], suppressorTuningValues(cfg.normalTuning))
+	assert.Equal(t, reference["suppressor_nearend_tuning"], suppressorTuningValues(cfg.nearendTuning))
+
+	dominant := cfg.dominantNearendDetection
+	assert.Equal(t, reference["suppressor_dominant_nearend_detection"], []float32{
+		dominant.enrThreshold,
+		dominant.enrExitThreshold,
+		dominant.snrThreshold,
+		float32(dominant.holdDuration),
+		float32(dominant.triggerThreshold),
+		boolValue(dominant.useDuringInitialPhase),
+		boolValue(dominant.useUnboundedEchoSpectrum),
+	})
+
+	subband := cfg.subbandNearendDetection
+	assert.Equal(t, reference["suppressor_subband_nearend_detection"], []float32{
+		float32(subband.nearendAverageBlocks),
+		float32(subband.subband1.low), float32(subband.subband1.high),
+		float32(subband.subband2.low), float32(subband.subband2.high),
+		subband.nearendThreshold,
+		subband.snrThreshold,
+	})
+
+	highBands := cfg.highBandsSuppression
+	assert.Equal(t, reference["suppressor_high_bands_suppression"], []float32{
+		highBands.enrThreshold,
+		highBands.maxGainDuringEcho,
+		highBands.antiHowlingActivationThreshold,
+		highBands.antiHowlingGain,
+	})
+	assert.Equal(t, reference["suppressor_high_frequency_suppression"], []float32{
+		float32(cfg.highFrequencySuppression.limitingGainBand),
+		float32(cfg.highFrequencySuppression.bandsInLimitingGain),
+	})
+}

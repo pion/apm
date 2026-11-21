@@ -13,3 +13,10 @@ erle: 1 4 1.5 1 1 1 1
 echo_removal_control: 0 0
 echo_audibility: 256 64 128 10 10 10 0 0
 echo_model: 50 1638400 10 27509.4199 0.300000012 1 1 1
+suppressor: 4 1 0 5 5 8 0 9.99999975e-06 0
+suppressor_normal_tuning: 0.300000012 0.400000006 0.300000012 0.0700000003 0.100000001 0.300000012 2 0.25
+suppressor_nearend_tuning: 1.09000003 1.10000002 0.300000012 0.100000001 0.300000012 0.300000012 2 0.25
+suppressor_dominant_nearend_detection: 0.25 10 30 50 12 1 1
+suppressor_subband_nearend_detection: 1 1 1 1 1 1 1
+suppressor_high_bands_suppression: 1 1 400 1
+suppressor_high_frequency_suppression: 16 1

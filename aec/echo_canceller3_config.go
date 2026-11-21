@@ -178,6 +178,7 @@ type echoCanceller3Config struct {
 	echoAudibility     echoAudibilityConfig
 	echoRemovalControl echoRemovalControlConfig
 	echoModel          echoModelConfig
+	suppressor         suppressorConfig
 }
 
 // defaultEchoCanceller3Config returns the upstream defaults.
@@ -192,6 +193,7 @@ func defaultEchoCanceller3Config() echoCanceller3Config {
 
 		echoAudibility: defaultEchoAudibilityConfig(),
 		echoModel:      defaultEchoModelConfig(),
+		suppressor:     defaultSuppressorConfig(),
 	}
 }
 
@@ -296,5 +298,133 @@ func defaultEchoModelConfig() echoModelConfig {
 		renderPreWindowSize:        1,
 		renderPostWindowSize:       1,
 		modelReverbInNonlinearMode: true,
+	}
+}
+
+// maskingThresholds mirrors
+// EchoCanceller3Config::Suppressor::MaskingThresholds.
+type maskingThresholds struct {
+	enrTransparent float32
+	enrSuppress    float32
+	emrTransparent float32
+}
+
+// suppressorTuning mirrors EchoCanceller3Config::Suppressor::Tuning.
+type suppressorTuning struct {
+	maskLf         maskingThresholds
+	maskHf         maskingThresholds
+	maxIncFactor   float32
+	maxDecFactorLf float32
+}
+
+// dominantNearendDetectionConfig mirrors
+// EchoCanceller3Config::Suppressor::DominantNearendDetection.
+type dominantNearendDetectionConfig struct {
+	enrThreshold             float32
+	enrExitThreshold         float32
+	snrThreshold             float32
+	holdDuration             int
+	triggerThreshold         int
+	useDuringInitialPhase    bool
+	useUnboundedEchoSpectrum bool
+}
+
+// subbandRegion mirrors
+// EchoCanceller3Config::Suppressor::SubbandNearendDetection::SubbandRegion.
+type subbandRegion struct {
+	low  int
+	high int
+}
+
+// subbandNearendDetectionConfig mirrors
+// EchoCanceller3Config::Suppressor::SubbandNearendDetection.
+type subbandNearendDetectionConfig struct {
+	nearendAverageBlocks int
+	subband1             subbandRegion
+	subband2             subbandRegion
+	nearendThreshold     float32
+	snrThreshold         float32
+}
+
+// highBandsSuppressionConfig mirrors
+// EchoCanceller3Config::Suppressor::HighBandsSuppression.
+type highBandsSuppressionConfig struct {
+	enrThreshold                   float32
+	maxGainDuringEcho              float32
+	antiHowlingActivationThreshold float32
+	antiHowlingGain                float32
+}
+
+// highFrequencySuppressionConfig mirrors
+// EchoCanceller3Config::Suppressor::HighFrequencySuppression.
+type highFrequencySuppressionConfig struct {
+	limitingGainBand    int
+	bandsInLimitingGain int
+}
+
+// suppressorConfig mirrors EchoCanceller3Config::Suppressor.
+type suppressorConfig struct {
+	nearendAverageBlocks          int
+	normalTuning                  suppressorTuning
+	nearendTuning                 suppressorTuning
+	lfSmoothingDuringInitialPhase bool
+	lastPermanentLfSmoothingBand  int
+	lastLfSmoothingBand           int
+	lastLfBand                    int
+	firstHfBand                   int
+	dominantNearendDetection      dominantNearendDetectionConfig
+	subbandNearendDetection       subbandNearendDetectionConfig
+	useSubbandNearendDetection    bool
+	highBandsSuppression          highBandsSuppressionConfig
+	highFrequencySuppression      highFrequencySuppressionConfig
+	floorFirstIncrease            float32
+	conservativeHfSuppression     bool
+}
+
+// defaultSuppressorConfig returns the upstream defaults.
+func defaultSuppressorConfig() suppressorConfig {
+	return suppressorConfig{
+		nearendAverageBlocks: 4,
+		normalTuning: suppressorTuning{
+			maskLf:         maskingThresholds{enrTransparent: 0.3, enrSuppress: 0.4, emrTransparent: 0.3},
+			maskHf:         maskingThresholds{enrTransparent: 0.07, enrSuppress: 0.1, emrTransparent: 0.3},
+			maxIncFactor:   2,
+			maxDecFactorLf: 0.25,
+		},
+		nearendTuning: suppressorTuning{
+			maskLf:         maskingThresholds{enrTransparent: 1.09, enrSuppress: 1.1, emrTransparent: 0.3},
+			maskHf:         maskingThresholds{enrTransparent: 0.1, enrSuppress: 0.3, emrTransparent: 0.3},
+			maxIncFactor:   2,
+			maxDecFactorLf: 0.25,
+		},
+		lfSmoothingDuringInitialPhase: true,
+		lastPermanentLfSmoothingBand:  0,
+		lastLfSmoothingBand:           5,
+		lastLfBand:                    5,
+		firstHfBand:                   8,
+		dominantNearendDetection: dominantNearendDetectionConfig{
+			enrThreshold:             0.25,
+			enrExitThreshold:         10,
+			snrThreshold:             30,
+			holdDuration:             50,
+			triggerThreshold:         12,
+			useDuringInitialPhase:    true,
+			useUnboundedEchoSpectrum: true,
+		},
+		subbandNearendDetection: subbandNearendDetectionConfig{
+			nearendAverageBlocks: 1,
+			subband1:             subbandRegion{low: 1, high: 1},
+			subband2:             subbandRegion{low: 1, high: 1},
+			nearendThreshold:     1,
+			snrThreshold:         1,
+		},
+		highBandsSuppression: highBandsSuppressionConfig{
+			enrThreshold:                   1,
+			maxGainDuringEcho:              1,
+			antiHowlingActivationThreshold: 400,
+			antiHowlingGain:                1,
+		},
+		highFrequencySuppression: highFrequencySuppressionConfig{limitingGainBand: 16, bandsInLimitingGain: 1},
+		floorFirstIncrease:       0.00001,
 	}
 }
