@@ -68,6 +68,22 @@ func newReferenceCursor(t *testing.T, path, suffix string) *referenceCursor {
 	return cursor
 }
 
+// filter moves the lines that have this name to a new cursor.
+func (c *referenceCursor) filter(name string) *referenceCursor {
+	filtered := &referenceCursor{t: c.t}
+	var others []refdata.Entry
+	for _, entry := range c.entries {
+		if entry.Key == name {
+			filtered.entries = append(filtered.entries, entry)
+		} else {
+			others = append(others, entry)
+		}
+	}
+	c.entries = others
+
+	return filtered
+}
+
 // next returns the samples of the next line, which must have this name.
 func (c *referenceCursor) next(name string) []float32 {
 	c.t.Helper()
