@@ -174,6 +174,8 @@ type echoCanceller3Config struct {
 	erle         erleConfig
 	epStrength   epStrengthConfig
 	renderLevels renderLevelsConfig
+
+	echoRemovalControl echoRemovalControlConfig
 }
 
 // defaultEchoCanceller3Config returns the upstream defaults.
@@ -232,4 +234,12 @@ func defaultErleConfig() erleConfig {
 		clampQualityEstimateToZero: true,
 		clampQualityEstimateToOne:  true,
 	}
+}
+
+// echoRemovalControlConfig mirrors
+// EchoCanceller3Config::EchoRemovalControl. The defaults are the zero
+// values.
+type echoRemovalControlConfig struct {
+	hasClockDrift           bool
+	linearAndStableEchoPath bool
 }

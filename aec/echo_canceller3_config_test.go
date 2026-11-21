@@ -138,3 +138,11 @@ func TestDefaultErleConfig_MatchesUpstream(t *testing.T) {
 		boolValue(cfg.clampQualityEstimateToOne),
 	})
 }
+
+func TestDefaultEchoRemovalControlConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultEchoCanceller3Config().echoRemovalControl
+	assert.Equal(t, loadConfigReference(t)["echo_removal_control"], []float32{
+		boolValue(cfg.hasClockDrift),
+		boolValue(cfg.linearAndStableEchoPath),
+	})
+}

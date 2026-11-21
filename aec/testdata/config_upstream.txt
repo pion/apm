@@ -10,3 +10,4 @@ ep_strength: 1 0.829999983 0.829999983 1 0 0 1
 render_alignment_mixing: 0 1 10000 1
 capture_alignment_mixing: 0 1 10000 0
 erle: 1 4 1.5 1 1 1 1
+echo_removal_control: 0 0
