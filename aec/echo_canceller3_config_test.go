@@ -146,3 +146,17 @@ func TestDefaultEchoRemovalControlConfig_MatchesUpstream(t *testing.T) {
 		boolValue(cfg.linearAndStableEchoPath),
 	})
 }
+
+func TestDefaultEchoAudibilityConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultEchoAudibilityConfig()
+	assert.Equal(t, loadConfigReference(t)["echo_audibility"], []float32{
+		cfg.lowRenderLimit,
+		cfg.normalRenderLimit,
+		cfg.floorPower,
+		cfg.audibilityThresholdLf,
+		cfg.audibilityThresholdMf,
+		cfg.audibilityThresholdHf,
+		boolValue(cfg.useStationarityProperties),
+		boolValue(cfg.useStationarityPropertiesAtInit),
+	})
+}

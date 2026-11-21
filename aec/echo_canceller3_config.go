@@ -175,6 +175,7 @@ type echoCanceller3Config struct {
 	epStrength   epStrengthConfig
 	renderLevels renderLevelsConfig
 
+	echoAudibility     echoAudibilityConfig
 	echoRemovalControl echoRemovalControlConfig
 }
 
@@ -187,6 +188,8 @@ func defaultEchoCanceller3Config() echoCanceller3Config {
 		erle:         defaultErleConfig(),
 		epStrength:   defaultEpStrengthConfig(),
 		renderLevels: defaultRenderLevelsConfig(),
+
+		echoAudibility: defaultEchoAudibilityConfig(),
 	}
 }
 
@@ -242,4 +245,28 @@ func defaultErleConfig() erleConfig {
 type echoRemovalControlConfig struct {
 	hasClockDrift           bool
 	linearAndStableEchoPath bool
+}
+
+// echoAudibilityConfig mirrors EchoCanceller3Config::EchoAudibility.
+type echoAudibilityConfig struct {
+	lowRenderLimit                  float32
+	normalRenderLimit               float32
+	floorPower                      float32
+	audibilityThresholdLf           float32
+	audibilityThresholdMf           float32
+	audibilityThresholdHf           float32
+	useStationarityProperties       bool
+	useStationarityPropertiesAtInit bool
+}
+
+// defaultEchoAudibilityConfig returns the upstream defaults.
+func defaultEchoAudibilityConfig() echoAudibilityConfig {
+	return echoAudibilityConfig{
+		lowRenderLimit:        4 * 64,
+		normalRenderLimit:     64,
+		floorPower:            2 * 64,
+		audibilityThresholdLf: 10,
+		audibilityThresholdMf: 10,
+		audibilityThresholdHf: 10,
+	}
 }
