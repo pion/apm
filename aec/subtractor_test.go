@@ -31,6 +31,10 @@ type subtractorScenario struct {
 	delayBuffers          []*testDelayBuffer
 	// delayChangeBlock is the block where a delay change is signaled.
 	delayChangeBlock int
+	// renderGain scales the render signal of a block, when set.
+	renderGain func(index int) float32
+	// pathGain replaces the gain of the echo path of a block, when set.
+	pathGain func(index int) float32
 }
 
 const subtractorScenarioBlocks = 1203
@@ -66,6 +70,12 @@ func (s *subtractorScenario) generate(index int) {
 	noise := make([]float32, kBlockSize)
 	for ch := range s.numRender {
 		randomizeSampleVector(s.random, s.render.view(0, ch))
+		if s.renderGain != nil {
+			gain := s.renderGain(index)
+			for k, sample := range s.render.view(0, ch) {
+				s.render.view(0, ch)[k] = sample * gain
+			}
+		}
 		s.delayBuffers[ch].delay(s.render.view(0, ch), delayed)
 		for k := range echo {
 			echo[k] += delayed[k] / float32(s.numRender)
@@ -76,6 +86,9 @@ func (s *subtractorScenario) generate(index int) {
 	pathGain := float32(0.5)
 	if index >= 900 {
 		pathGain = 1.9
+	}
+	if s.pathGain != nil {
+		pathGain = s.pathGain(index)
 	}
 	for ch := range s.numCapture {
 		randomizeSampleVector(s.random, noise)
