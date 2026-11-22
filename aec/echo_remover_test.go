@@ -279,6 +279,15 @@ func (l levelDeviations) assertBelow(t *testing.T, name string, limit, median, p
 
 		return
 	}
+	l.assertQuantiles(t, name, median, p90, p99)
+}
+
+// assertQuantiles checks the median, the 90th and the 99th percentiles
+// of the deviations.
+func (l levelDeviations) assertQuantiles(t *testing.T, name string, median, p90, p99 float64) {
+	t.Helper()
+	slices.Sort(l)
+	require.NotEmpty(t, l, name)
 	assert.LessOrEqual(t, l[len(l)/2], median, "%s, median", name)
 	assert.LessOrEqual(t, l[len(l)*9/10], p90, "%s, 90th percentile", name)
 	assert.LessOrEqual(t, l[len(l)*99/100], p99, "%s, 99th percentile", name)

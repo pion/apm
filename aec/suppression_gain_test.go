@@ -334,11 +334,11 @@ func TestSuppressionGain_MatchesUpstream(t *testing.T) {
 	for _, tc := range []struct {
 		numRender, numCapture int
 		mode                  string
-	}{{1, 1, "default"}, {2, 2, suppressionGainModeSubband}, {2, 2, suppressionGainModeConservative}} {
+	}{{1, 1, aecStateModeDefault}, {2, 2, suppressionGainModeSubband}, {2, 2, suppressionGainModeConservative}} {
 		suffix := fmt.Sprintf(" %d %d %s", tc.numRender, tc.numCapture, tc.mode)
 		t.Run(suffix[1:], func(t *testing.T) {
 			reference := newReferenceCursor(t, "testdata/suppression_gain_upstream.txt", suffix)
-			stateScenario := newResidualEchoScenario(tc.numRender, tc.numCapture, "default")
+			stateScenario := newResidualEchoScenario(tc.numRender, tc.numCapture, aecStateModeDefault)
 			config := suppressionGainScenarioConfig(tc.mode)
 			scenario := newSuppressionGainScenario(tc.numRender, tc.numCapture, config)
 			gain := newSuppressionGain(config, tc.numCapture)

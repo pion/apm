@@ -373,7 +373,7 @@ func TestResidualEchoEstimator_MatchesUpstream(t *testing.T) {
 	for _, tc := range []struct {
 		numRender, numCapture int
 		mode                  string
-	}{{1, 1, "default"}, {2, 2, residualEchoModeCustom}, {1, 2, residualEchoModeNoReverb}, {1, 1, residualEchoModeNoEcho}} {
+	}{{1, 1, aecStateModeDefault}, {2, 2, residualEchoModeCustom}, {1, 2, residualEchoModeNoReverb}, {1, 1, residualEchoModeNoEcho}} {
 		scenario := newResidualEchoScenario(tc.numRender, tc.numCapture, tc.mode)
 		t.Run(scenario.suffix()[1:], func(t *testing.T) {
 			reference := newReferenceCursor(t, "testdata/residual_echo_estimator_upstream.txt", scenario.suffix())

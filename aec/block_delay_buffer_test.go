@@ -10,9 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newSplitBandsFrame returns a frame that is indexed by channel, band
-// and sample.
-func newSplitBandsFrame(numChannels, numBands, frameLength int) [][][]float32 {
+// newSplitBandsFrame returns a frame of 160 samples per band that is
+// indexed by channel, band and sample.
+func newSplitBandsFrame(numChannels, numBands int) [][][]float32 {
+	const frameLength = 160
 	frame := make([][][]float32, numChannels)
 	for ch := range frame {
 		frame[ch] = make([][]float32, numBands)
@@ -41,7 +42,7 @@ func runBlockDelayBufferTest(t *testing.T, delay, rate, numChannels int) {
 	for frameIndex := range numFramesToProcess {
 		// Populate the frame with linearly increasing sample values for
 		// each band.
-		frame := newSplitBandsFrame(numChannels, numBands, subbandFrameLength)
+		frame := newSplitBandsFrame(numChannels, numBands)
 		firstSampleIndex := frameIndex * subbandFrameLength
 		for ch := range frame {
 			for band := range frame[ch] {
