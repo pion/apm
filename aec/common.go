@@ -4,13 +4,14 @@
 
 // Package aec exposes a Go port of WebRTC's AEC3 acoustic echo canceller.
 //
-// The single-channel 16 kHz path is functional: a frequency-domain
-// partitioned-block adaptive filter (AdaptiveFirFilter) driven by the
-// coarse NLMS gain rule (CoarseFilterUpdateGain) subtracts the
-// loudspeaker echo from the microphone. Upstream's dual coarse/refined
-// filter design, AecState, suppression gain, matched-filter delay
-// estimation, and multi-band/multi-channel paths are not yet ported;
-// expect the residual echo to remain audible.
+// Canceller runs a single-channel 16 kHz path: an adaptive filter driven
+// by the coarse gain rule subtracts the loudspeaker echo from the
+// microphone, so the residual echo remains audible.
+//
+// The upstream EchoCanceller3 and its components are ported as
+// echoCanceller3, with the delay estimation, the dual filters, the echo
+// suppression and the multi-band and multi-channel paths. Canceller does
+// not use it yet.
 package aec
 
 import "math"
