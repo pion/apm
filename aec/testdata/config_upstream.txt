@@ -21,3 +21,4 @@ suppressor_subband_nearend_detection: 1 1 1 1 1 1 1
 suppressor_high_bands_suppression: 1 1 400 1
 suppressor_high_frequency_suppression: 16 1
 comfort_noise: -96.0340576
+multi_channel: 1 0 300 2

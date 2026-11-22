@@ -238,3 +238,13 @@ func TestDefaultComfortNoiseConfig_MatchesUpstream(t *testing.T) {
 	cfg := defaultEchoCanceller3Config().comfortNoise
 	assert.Equal(t, loadConfigReference(t)["comfort_noise"], []float32{cfg.noiseFloorDbfs})
 }
+
+func TestDefaultMultiChannelConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultMultiChannelConfig()
+	assert.Equal(t, loadConfigReference(t)["multi_channel"], []float32{
+		boolValue(cfg.detectStereoContent),
+		cfg.stereoDetectionThreshold,
+		float32(cfg.stereoDetectionTimeoutThresholdSeconds),
+		cfg.stereoDetectionHysteresisSeconds,
+	})
+}

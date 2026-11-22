@@ -180,6 +180,7 @@ type echoCanceller3Config struct {
 	echoModel          echoModelConfig
 	comfortNoise       comfortNoiseConfig
 	suppressor         suppressorConfig
+	multiChannel       multiChannelConfig
 }
 
 // defaultEchoCanceller3Config returns the upstream defaults.
@@ -196,6 +197,7 @@ func defaultEchoCanceller3Config() echoCanceller3Config {
 		echoModel:      defaultEchoModelConfig(),
 		comfortNoise:   comfortNoiseConfig{noiseFloorDbfs: -96.03406},
 		suppressor:     defaultSuppressorConfig(),
+		multiChannel:   defaultMultiChannelConfig(),
 	}
 }
 
@@ -434,4 +436,22 @@ func defaultSuppressorConfig() suppressorConfig {
 // comfortNoiseConfig mirrors EchoCanceller3Config::ComfortNoise.
 type comfortNoiseConfig struct {
 	noiseFloorDbfs float32
+}
+
+// multiChannelConfig mirrors EchoCanceller3Config::MultiChannel.
+type multiChannelConfig struct {
+	detectStereoContent                    bool
+	stereoDetectionThreshold               float32
+	stereoDetectionTimeoutThresholdSeconds int
+	stereoDetectionHysteresisSeconds       float32
+}
+
+// defaultMultiChannelConfig returns the upstream defaults.
+func defaultMultiChannelConfig() multiChannelConfig {
+	return multiChannelConfig{
+		detectStereoContent:                    true,
+		stereoDetectionThreshold:               0,
+		stereoDetectionTimeoutThresholdSeconds: 300,
+		stereoDetectionHysteresisSeconds:       2,
+	}
 }
