@@ -65,3 +65,9 @@ func fastApproxLog2f(in float32) float32 {
 
 	return out - 126.942695
 }
+
+// log2TodB matches Log2TodB: the dB value of a power quantity that is
+// expressed in log2.
+func log2TodB(inLog2 float32) float32 {
+	return float32(3.0102999566398121 * float64(inLog2))
+}
