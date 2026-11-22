@@ -178,6 +178,7 @@ type echoCanceller3Config struct {
 	echoAudibility     echoAudibilityConfig
 	echoRemovalControl echoRemovalControlConfig
 	echoModel          echoModelConfig
+	comfortNoise       comfortNoiseConfig
 	suppressor         suppressorConfig
 }
 
@@ -193,6 +194,7 @@ func defaultEchoCanceller3Config() echoCanceller3Config {
 
 		echoAudibility: defaultEchoAudibilityConfig(),
 		echoModel:      defaultEchoModelConfig(),
+		comfortNoise:   comfortNoiseConfig{noiseFloorDbfs: -96.03406},
 		suppressor:     defaultSuppressorConfig(),
 	}
 }
@@ -427,4 +429,9 @@ func defaultSuppressorConfig() suppressorConfig {
 		highFrequencySuppression: highFrequencySuppressionConfig{limitingGainBand: 16, bandsInLimitingGain: 1},
 		floorFirstIncrease:       0.00001,
 	}
+}
+
+// comfortNoiseConfig mirrors EchoCanceller3Config::ComfortNoise.
+type comfortNoiseConfig struct {
+	noiseFloorDbfs float32
 }

@@ -233,3 +233,8 @@ func TestDefaultSuppressorConfig_MatchesUpstream(t *testing.T) {
 		float32(cfg.highFrequencySuppression.bandsInLimitingGain),
 	})
 }
+
+func TestDefaultComfortNoiseConfig_MatchesUpstream(t *testing.T) {
+	cfg := defaultEchoCanceller3Config().comfortNoise
+	assert.Equal(t, loadConfigReference(t)["comfort_noise"], []float32{cfg.noiseFloorDbfs})
+}

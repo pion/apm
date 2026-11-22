@@ -20,3 +20,4 @@ suppressor_dominant_nearend_detection: 0.25 10 30 50 12 1 1
 suppressor_subband_nearend_detection: 1 1 1 1 1 1 1
 suppressor_high_bands_suppression: 1 1 400 1
 suppressor_high_frequency_suppression: 16 1
+comfort_noise: -96.0340576
