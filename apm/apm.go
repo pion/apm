@@ -74,6 +74,16 @@ type Processor struct {
 	// Stream delay reported for the next capture frame.
 	streamDelayMs  int
 	streamDelaySet bool
+
+	// Volumes of the capture and the playout devices. Like upstream, a
+	// change tells the echo canceller that the gain of the echo path has
+	// changed. The playout volumes are negative until one is set.
+	inputVolume        int
+	inputVolumeSet     bool
+	inputVolumeChanged bool
+	playoutVolume      int
+	prevPlayoutVolume  int
+	echoPathGainChange bool
 }
 
 // New constructs a Processor.
@@ -88,8 +98,10 @@ func New(cfg Config) (*Processor, error) {
 	// echo canceller.
 	bandModules := cfg.HPF.Enabled || cfg.NS.Enabled || cfg.AEC.Enabled
 	proc := &Processor{
-		cfg:      cfg,
-		procRate: SampleRate(suitableProcessRate(int(cfg.SampleRate), int(cfg.MaxProcessingRate), bandModules)),
+		cfg:               cfg,
+		procRate:          SampleRate(suitableProcessRate(int(cfg.SampleRate), int(cfg.MaxProcessingRate), bandModules)),
+		playoutVolume:     -1,
+		prevPlayoutVolume: -1,
 	}
 	if err := proc.initCapture(bandModules); err != nil {
 		return nil, err
@@ -342,6 +354,9 @@ func (p *Processor) processCapture(data [][]float32) error {
 	// Upstream detects the saturation of the capture signal on the full
 	// band, before the split.
 	if p.aec != nil {
+		p.echoPathGainChange = p.inputVolumeChanged ||
+			(p.prevPlayoutVolume != p.playoutVolume && p.prevPlayoutVolume >= 0)
+		p.prevPlayoutVolume = p.playoutVolume
 		if err := p.aec.AnalyzeCapture(data); err != nil {
 			return err
 		}
@@ -391,7 +406,7 @@ func (p *Processor) processInner(channels [][]float32, upperBands [][][]float32)
 		if p.streamDelaySet {
 			p.aec.SetAudioBufferDelay(p.streamDelayMs)
 		}
-		if err := p.aec.ProcessCapture(p.captureSplit, false); err != nil {
+		if err := p.aec.ProcessCapture(p.captureSplit, p.echoPathGainChange); err != nil {
 			return err
 		}
 	}
@@ -477,6 +492,24 @@ func (p *Processor) SetStreamDelayMS(ms int) error {
 	p.streamDelaySet = true
 
 	return nil
+}
+
+// SetStreamAnalogLevel reports the analog level of the capture device
+// that applies to the next near-end frame, like upstream's
+// set_stream_analog_level. Call it before every ProcessStream: the echo
+// canceller is told of a change of level since the previous call.
+func (p *Processor) SetStreamAnalogLevel(level int) {
+	p.inputVolumeChanged = p.inputVolumeSet && p.inputVolume != level
+	p.inputVolume = level
+	p.inputVolumeSet = true
+}
+
+// SetPlayoutVolume reports the volume of the playout device, like
+// upstream's playout volume change runtime setting. The echo canceller is
+// told of a change of volume when it processes the next near-end frame.
+// The volume must not be negative.
+func (p *Processor) SetPlayoutVolume(volume int) {
+	p.playoutVolume = volume
 }
 
 func (p *Processor) validateFrame(f *Frame, wantRate SampleRate, wantCh int) error {

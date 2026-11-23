@@ -6,6 +6,7 @@ package apm
 import (
 	"fmt"
 	"math/rand/v2"
+	"reflect"
 	"testing"
 
 	"github.com/pion/apm/aec"
@@ -55,7 +56,7 @@ func (c *echoChain) analyzeRender(t *testing.T, render [][]float32) {
 
 // processCapture processes a capture frame on the int16 scale in place.
 // The stream delay is set when delayMs is not negative.
-func (c *echoChain) processCapture(t *testing.T, capture [][]float32, delayMs int) {
+func (c *echoChain) processCapture(t *testing.T, capture [][]float32, delayMs int, levelChange bool) {
 	t.Helper()
 	require.NoError(t, c.filter.Process(capture))
 	require.NoError(t, c.canceller.AnalyzeCapture(capture))
@@ -67,22 +68,39 @@ func (c *echoChain) processCapture(t *testing.T, capture [][]float32, delayMs in
 	if delayMs >= 0 {
 		c.canceller.SetAudioBufferDelay(delayMs)
 	}
-	require.NoError(t, c.canceller.ProcessCapture(c.captureSplit, false))
+	require.NoError(t, c.canceller.ProcessCapture(c.captureSplit, levelChange))
 	if c.captureSplitter != nil {
 		require.NoError(t, c.captureSplitter.Synthesis(c.captureBands, capture))
 	}
 }
 
-// echoFrames fills a render frame with noise and a capture frame with its
+// echoSignal generates the frames of a render signal and of a capture
+// signal that holds its echo, delayed by 20 ms.
+type echoSignal struct {
+	rng     *rand.Rand
+	history [2]*Frame
+}
+
+func newEchoSignal(seed uint64, rate SampleRate, numRender int) *echoSignal {
+	return &echoSignal{
+		rng:     rand.New(rand.NewPCG(seed, 0)), //nolint:gosec // Deterministic test signal.
+		history: [2]*Frame{NewFrame(rate, numRender), NewFrame(rate, numRender)},
+	}
+}
+
+// frames fills a render frame with noise and a capture frame with the
 // echo and weak noise. The capture signal is saturated when loud is set.
-func echoFrames(rng *rand.Rand, far, near *Frame, loud bool) {
+func (e *echoSignal) frames(far, near *Frame, loud bool) {
+	rng := e.rng
 	for ch := range far.Data {
 		for j := range far.Data[ch] {
 			far.Data[ch][j] = float32(rng.NormFloat64() * 0.1)
 		}
 	}
+	source := e.history[0]
+	e.history[0], e.history[1] = e.history[1], far
 	for ch := range near.Data {
-		render := far.Data[ch%len(far.Data)]
+		render := source.Data[ch%len(source.Data)]
 		for j := range near.Data[ch] {
 			sample := 0.5*render[j] + float32(rng.NormFloat64()*0.01)
 			if loud {
@@ -121,14 +139,14 @@ func TestProcessor_DrivesEchoCanceller(t *testing.T) {
 			require.NoError(t, err)
 			chain := newEchoChain(t, tc.rate, tc.numRender, tc.numCapture)
 
-			rng := rand.New(rand.NewPCG(29, 0)) //nolint:gosec // Deterministic test signal.
+			signal := newEchoSignal(29, tc.rate, tc.numRender)
 			for i := range 120 {
 				far, near := NewFrame(tc.rate, tc.numRender), NewFrame(tc.rate, tc.numCapture)
-				echoFrames(rng, far, near, i >= 60 && i < 70)
+				signal.frames(far, near, i >= 60 && i < 70)
 
 				chain.analyzeRender(t, cloneScaledUp(far.Data))
 				want := cloneScaledUp(near.Data)
-				chain.processCapture(t, want, -1)
+				chain.processCapture(t, want, -1, false)
 				scaleDown(want)
 
 				require.NoError(t, proc.ProcessReverseStream(far))
@@ -139,13 +157,14 @@ func TestProcessor_DrivesEchoCanceller(t *testing.T) {
 	}
 }
 
-// processorEchoOutputs runs a Processor and an echoChain on the same 16
-// kHz frames and returns their outputs. The render frames 40 to 55 are
+// processorEchoOutputs runs a Processor and an echoChain on the same
+// 16 kHz frames and returns their outputs. The render frames 40 to 55 are
 // skipped, which makes the echo canceller reset its render buffer.
 // control is called on the Processor before every capture frame, and
-// chainDelayMs gives the stream delay of the chain, or -1 for none.
+// chainControl gives the stream delay of the chain, or -1 for none, and
+// its level change flag.
 func processorEchoOutputs(
-	t *testing.T, control func(index int, proc *Processor), chainDelayMs func(index int) int,
+	t *testing.T, numFrames int, control func(index int, proc *Processor), chainControl func(index int) (int, bool),
 ) (got, want [][]float32) {
 	t.Helper()
 	cfg := DefaultConfig(Rate16k, 1)
@@ -154,16 +173,17 @@ func processorEchoOutputs(
 	require.NoError(t, err)
 	chain := newEchoChain(t, Rate16k, 1, 1)
 
-	rng := rand.New(rand.NewPCG(37, 0)) //nolint:gosec // Deterministic test signal.
-	for i := range 150 {
+	signal := newEchoSignal(37, Rate16k, 1)
+	for i := range numFrames {
 		far, near := NewFrame(Rate16k, 1), NewFrame(Rate16k, 1)
-		echoFrames(rng, far, near, false)
+		signal.frames(far, near, false)
 		reference := cloneScaledUp(near.Data)
 		if i < 40 || i >= 56 {
 			chain.analyzeRender(t, cloneScaledUp(far.Data))
 			require.NoError(t, proc.ProcessReverseStream(far))
 		}
-		chain.processCapture(t, reference, chainDelayMs(i))
+		delayMs, levelChange := chainControl(i)
+		chain.processCapture(t, reference, delayMs, levelChange)
 		scaleDown(reference)
 		control(i, proc)
 		require.NoError(t, proc.ProcessStream(near))
@@ -179,10 +199,43 @@ func processorEchoOutputs(
 func TestProcessor_PassesStreamDelay(t *testing.T) {
 	const delayMs = 100
 	setDelay := func(_ int, proc *Processor) { require.NoError(t, proc.SetStreamDelayMS(delayMs)) }
-	got, want := processorEchoOutputs(t, setDelay, func(int) int { return delayMs })
+	got, want := processorEchoOutputs(t, 150, setDelay, func(int) (int, bool) { return delayMs, false })
 	require.Equal(t, want, got)
 
 	// The delay changes the output.
-	_, without := processorEchoOutputs(t, setDelay, func(int) int { return -1 })
+	_, without := processorEchoOutputs(t, 150, setDelay, func(int) (int, bool) { return -1, false })
 	require.NotEqual(t, without, got)
+}
+
+// Like upstream, the echo canceller is told of a change of the analog
+// level and of the playout volume, but not of their first values. The
+// changes come after the first 2.5 seconds, during which they have no
+// effect on the echo canceller.
+func TestProcessor_FlagsLevelChanges(t *testing.T) {
+	control := func(index int, proc *Processor) {
+		switch {
+		case index >= 410:
+			proc.SetStreamAnalogLevel(120)
+		case index >= 340:
+			proc.SetStreamAnalogLevel(100)
+		}
+		switch index {
+		case 330:
+			proc.SetPlayoutVolume(200)
+		case 370:
+			proc.SetPlayoutVolume(150)
+		}
+	}
+	got, want := processorEchoOutputs(t, 450, control, func(index int) (int, bool) {
+		return -1, index == 370 || index == 410
+	})
+	require.Equal(t, want, got)
+
+	// Each change changes the output.
+	for _, changeIndex := range []int{370, 410} {
+		_, without := processorEchoOutputs(t, 450, control, func(index int) (int, bool) {
+			return -1, index == changeIndex
+		})
+		require.False(t, reflect.DeepEqual(without, got), "change at frame %d", changeIndex)
+	}
 }
