@@ -13,16 +13,18 @@
 #   - max_peak_dbfs: peak level threshold (dBFS, negative is below FS)
 
 aec_erle:
-  min_erle_db: 20.0
+  min_erle_db: 40.0
   notes: |
     Synthetic echo path with exponential decay IR (RT60 ≈ 150 ms).
-    AEC must achieve ≥ 20 dB ERLE in steady state.
+    AEC must achieve ≥ 40 dB ERLE in steady state: the linear filter
+    and the echo suppressor give 64 dB.
 
 aec_doubletalk:
-  min_erle_db: 10.0
+  min_erle_db: 40.0
   notes: |
-    Double-talk: near-end speech overlaps with echo for the middle 50 %.
-    ERLE bound is lower because the canceller must protect near-end speech.
+    Double-talk: near-end noise overlaps with echo for the middle 50 %.
+    The bound is on the ERLE of the first quarter, before the
+    double-talk, where the canceller gives 61 dB.
 
 ns_snr_gain:
   min_snr_gain_db: 6.0
