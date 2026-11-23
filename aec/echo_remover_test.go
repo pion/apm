@@ -120,6 +120,8 @@ func TestEchoRemover_BasicEchoRemoval(t *testing.T) {
 // gains are not smoothed and the nearend is not detected in the initial
 // state, the upper bands gain is bounded during echo, and the reverb
 // decay for the nearend regions is 0.7.
+//
+// With driftFlag, a clock drift is also signaled in blocks 1000 to 1099.
 type echoRemoverScenario struct {
 	numBands, numRender, numCapture int
 	remover                         *echoRemover
@@ -127,7 +129,7 @@ type echoRemoverScenario struct {
 	random                          *testRandom
 	render, capture, linearOutput   *block
 	delayBuffers                    []*testDelayBuffer
-	custom                          bool
+	custom, driftFlag               bool
 	// The energies of the last capture channel of the last block: the
 	// first band of the input and of the output, the upper bands of the
 	// output, and the output of the linear filter.
@@ -137,7 +139,6 @@ type echoRemoverScenario struct {
 const echoRemoverScenarioBlocks = 1500
 
 func newEchoRemoverScenario(sampleRateHz, numRender, numCapture, delaySamples int, custom bool) *echoRemoverScenario {
-	numBands := numBandsForRate(sampleRateHz)
 	config := defaultEchoCanceller3Config()
 	if custom {
 		config.suppressor.lfSmoothingDuringInitialPhase = false
@@ -146,6 +147,16 @@ func newEchoRemoverScenario(sampleRateHz, numRender, numCapture, delaySamples in
 		config.suppressor.highBandsSuppression.enrThreshold = 0.5
 		config.epStrength.nearendLen = 0.7
 	}
+	scenario := newEchoRemoverScenarioWithConfig(config, sampleRateHz, numRender, numCapture, delaySamples)
+	scenario.custom = custom
+
+	return scenario
+}
+
+func newEchoRemoverScenarioWithConfig(
+	config echoCanceller3Config, sampleRateHz, numRender, numCapture, delaySamples int,
+) *echoRemoverScenario {
+	numBands := numBandsForRate(sampleRateHz)
 	bufferConfig := config
 	bufferConfig.delay.defaultDelay = 1
 	scenario := &echoRemoverScenario{
@@ -159,7 +170,6 @@ func newEchoRemoverScenario(sampleRateHz, numRender, numCapture, delaySamples in
 		capture:           newBlock(numBands, numCapture),
 		linearOutput:      newBlock(1, numCapture),
 		delayBuffers:      make([]*testDelayBuffer, numBands*numRender),
-		custom:            custom,
 	}
 	for i := range scenario.delayBuffers {
 		scenario.delayBuffers[i] = newTestDelayBuffer(delaySamples)
@@ -227,7 +237,10 @@ func (s *echoRemoverScenario) step(index int) {
 		s.renderDelayBuffer.reset()
 	}
 	s.renderDelayBuffer.prepareCaptureProcessing()
-	variability := echoPathVariability{gainChange: index == 600, clockDrift: inRange(index, 900, 1000)}
+	variability := echoPathVariability{
+		gainChange: index == 600,
+		clockDrift: inRange(index, 900, 1000) || (s.driftFlag && inRange(index, 1000, 1100)),
+	}
 	if s.custom && index == 1000 {
 		variability.delayChange = delayAdjustmentNewDetectedDelay
 	}
@@ -356,6 +369,51 @@ func TestEchoRemover_MatchesUpstream(t *testing.T) {
 			erle.assertBelow(t, "ERLE", 0.001, 0.1, 1, 1)
 			require.Empty(t, reference.entries)
 			require.Empty(t, metricsReference.entries)
+		})
+	}
+}
+
+// TestEchoRemover_ClockDriftMatchesUpstream compares the energy of the
+// output of the blocks 1050 to 1149 with the upstream EchoRemover when
+// the clocks drift: the echo remover is told so by its config in the
+// "driftconfig" scenario, and by the flag of the blocks 1000 to 1099 in
+// the "driftflag" one. Upstream then lowers the gains of the high
+// frequencies of some of these blocks by up to 0.14 dB.
+//
+// The comparison is looser on the architectures where Go fuses
+// multiply-add, like for TestEchoRemover_MatchesUpstream: there it does
+// not tell the clock drift.
+func TestEchoRemover_ClockDriftMatchesUpstream(t *testing.T) {
+	const firstBlock, lastBlock = 1050, 1149
+	withoutDrift := newReferenceCursor(t, "testdata/echo_remover_upstream.txt", " 48000 1 1 150").filter("energies")
+	for _, mode := range []string{"driftconfig", "driftflag"} {
+		t.Run(mode, func(t *testing.T) {
+			reference := newReferenceCursor(t, "testdata/echo_remover_upstream.txt", " 48000 1 1 150 "+mode)
+			config := defaultEchoCanceller3Config()
+			config.echoRemovalControl.hasClockDrift = mode == "driftconfig"
+			scenario := newEchoRemoverScenarioWithConfig(config, 48000, 1, 1, 150)
+			scenario.driftFlag = mode == "driftflag"
+			var output, upper, drift levelDeviations
+
+			for index := range lastBlock + 1 {
+				scenario.step(index)
+				if index < firstBlock {
+					continue
+				}
+				want := reference.next("energies")
+				require.Equal(t, float32(index), want[0])
+				require.InEpsilon(t, want[1], scenario.inputEnergy, 1e-5, "block %d", index)
+				output.add(want[2], scenario.outputEnergy)
+				upper.add(want[3], scenario.upperEnergy)
+				drift.add(withoutDrift.entries[index].Samples[2], want[2])
+			}
+			output.assertBelow(t, "output", 0.01, 0.1, 3, 6)
+			upper.assertBelow(t, "upper bands", 0.01, 0.1, 1, 6)
+			require.Empty(t, reference.entries)
+
+			// The reference differs from the one without the clock drift.
+			slices.Sort(drift)
+			assert.Greater(t, drift[len(drift)-1], 0.1)
 		})
 	}
 }
