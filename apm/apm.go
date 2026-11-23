@@ -231,13 +231,8 @@ func newSplitter(rate SampleRate, numChannels int) (*subband.SplittingFilter, []
 // initModules creates the enabled processing modules.
 func (p *Processor) initModules() error {
 	cfg := p.cfg
-	if cfg.HPF.Enabled {
-		// Upstream filters the full band by default, before the split.
-		f, err := hpf.New(int(p.procRate), cfg.NumChannels)
-		if err != nil {
-			return fmt.Errorf("apm: hpf: %w", err)
-		}
-		p.hpf = f
+	if err := p.initHPF(); err != nil {
+		return err
 	}
 	if cfg.NS.Enabled {
 		s, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, int(p.procRate), cfg.NumChannels)
@@ -266,6 +261,35 @@ func (p *Processor) initModules() error {
 	}
 
 	return nil
+}
+
+// initHPF creates the high-pass filter. Like upstream, the noise
+// suppressor and the echo canceller require it.
+func (p *Processor) initHPF() error {
+	cfg := p.cfg
+	if !cfg.HPF.Enabled && !cfg.NS.Enabled && !cfg.AEC.Enabled {
+		return nil
+	}
+	// Upstream filters the full band by default, before the split.
+	f, err := hpf.New(p.hpfRate(), cfg.NumChannels)
+	if err != nil {
+		return fmt.Errorf("apm: hpf: %w", err)
+	}
+	p.hpf = f
+
+	return nil
+}
+
+// hpfRate returns the rate that selects the coefficients of the high-pass
+// filter. Like upstream, which takes proc_fullband_sample_rate_hz, it is
+// 48 kHz for a 48 kHz stream even when the stream is processed, and
+// filtered, at a lower rate.
+func (p *Processor) hpfRate() int {
+	if p.cfg.SampleRate == Rate48k {
+		return int(Rate48k)
+	}
+
+	return int(p.procRate)
 }
 
 // Config returns a copy of the active configuration.

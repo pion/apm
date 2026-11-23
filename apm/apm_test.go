@@ -165,8 +165,8 @@ func TestProcessor_ZeroAllocAllModules(t *testing.T) {
 	}
 }
 
-// The capture path follows upstream: noise analysis, echo cancellation,
-// then noise suppression.
+// The capture path follows upstream: high-pass filter, noise analysis,
+// echo cancellation, then noise suppression.
 func TestProcessor_AnalyzesNoiseBeforeEchoCancellation(t *testing.T) {
 	cfg := DefaultConfig(Rate16k, 1)
 	cfg.AEC.Enabled = true
@@ -174,6 +174,8 @@ func TestProcessor_AnalyzesNoiseBeforeEchoCancellation(t *testing.T) {
 	proc, err := New(cfg)
 	require.NoError(t, err)
 
+	filter, err := hpf.New(16000, 1)
+	require.NoError(t, err)
 	canceller, err := aec.New(16000, 1, 1)
 	require.NoError(t, err)
 	suppressor, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, 16000, 1)
@@ -191,6 +193,7 @@ func TestProcessor_AnalyzesNoiseBeforeEchoCancellation(t *testing.T) {
 			want[0][j] = near.Data[0][j] * apmScale
 		}
 		require.NoError(t, canceller.AnalyzeRender([][][]float32{wantFar}))
+		require.NoError(t, filter.Process(want))
 		require.NoError(t, canceller.AnalyzeCapture(want))
 		require.NoError(t, suppressor.Analyze(want))
 		require.NoError(t, canceller.ProcessCapture([][][]float32{want}, false))
@@ -324,4 +327,44 @@ func TestNew_NormalizesMaxProcessingRate(t *testing.T) {
 		assert.Equal(t, tc.want, proc.Config().MaxProcessingRate, "max %d", tc.in)
 	}
 	assert.Equal(t, Rate32k, DefaultConfig(Rate48k, 1).MaxProcessingRate)
+}
+
+// Like upstream, the noise suppressor and the echo canceller turn the
+// high-pass filter on: a DC offset is removed.
+func TestProcessor_HPFRequiredByNSAndAEC(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enable  func(cfg *Config)
+		removed bool
+	}{
+		{"none", func(*Config) {}, false},
+		{"ns", func(cfg *Config) { cfg.NS.Enabled = true }, true},
+		{"aec", func(cfg *Config) { cfg.AEC.Enabled = true }, true},
+	} {
+		cfg := DefaultConfig(Rate16k, 1)
+		tc.enable(&cfg)
+		proc, err := New(cfg)
+		require.NoError(t, err, tc.name)
+
+		rng := rand.New(rand.NewPCG(31, 0)) //nolint:gosec // Deterministic test signal.
+		var mean float64
+		for i := range 200 {
+			near := NewFrame(Rate16k, 1)
+			for j := range near.Data[0] {
+				near.Data[0][j] = 0.2 + float32(rng.NormFloat64()*0.05)
+			}
+			require.NoError(t, proc.ProcessReverseStream(NewFrame(Rate16k, 1)), tc.name)
+			require.NoError(t, proc.ProcessStream(near), tc.name)
+			if i == 199 {
+				for _, sample := range near.Data[0] {
+					mean += float64(sample) / float64(len(near.Data[0]))
+				}
+			}
+		}
+		if tc.removed {
+			assert.InDelta(t, 0, mean, 0.02, tc.name)
+		} else {
+			assert.InDelta(t, 0.2, mean, 0.02, tc.name)
+		}
+	}
 }

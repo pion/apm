@@ -32,7 +32,8 @@ type Config struct {
 }
 
 // HPFConfig controls the high-pass filter: a 3-stage cascaded biquad
-// pre-tuned per processing rate.
+// pre-tuned per processing rate. Like upstream, the filter also runs when
+// the noise suppressor or the echo canceller is enabled.
 type HPFConfig struct {
 	Enabled bool
 }

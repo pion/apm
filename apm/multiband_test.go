@@ -248,6 +248,8 @@ func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 	require.NoError(t, err)
 	captureSplitter, err := subband.NewSplittingFilter(1, 3)
 	require.NoError(t, err)
+	filter, err := hpf.New(48000, 1)
+	require.NoError(t, err)
 	canceller, err := aec.New(48000, 1, 1)
 	require.NoError(t, err)
 	renderBands, captureBands := allocBandBuffers(3, 1), allocBandBuffers(3, 1)
@@ -271,6 +273,7 @@ func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 
 		want := [][]float32{append([]float32(nil), near.Data[0]...)}
 		scaleUp(want)
+		require.NoError(t, filter.Process(want))
 		require.NoError(t, canceller.AnalyzeCapture(want))
 		require.NoError(t, captureSplitter.Analysis(want, captureBands))
 		require.NoError(t, canceller.ProcessCapture(captureSplit, false))
@@ -284,7 +287,8 @@ func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 }
 
 // By default the band modules run at 32 kHz at most, like upstream: a
-// 48 kHz stream is resampled to 32 kHz for them and back.
+// 48 kHz stream is resampled to 32 kHz for them and back. Like upstream,
+// the high-pass filter then keeps the coefficients of 48 kHz.
 func TestProcessor_DefaultCaps48kHzProcessingAt32kHz(t *testing.T) {
 	cfg := DefaultConfig(Rate48k, 1)
 	cfg.HPF.Enabled = true
@@ -295,7 +299,7 @@ func TestProcessor_DefaultCaps48kHzProcessingAt32kHz(t *testing.T) {
 	require.NoError(t, err)
 	up, err := resampler.NewPushSincResampler(320, 480)
 	require.NoError(t, err)
-	filter, err := hpf.New(32000, 1)
+	filter, err := hpf.New(48000, 1)
 	require.NoError(t, err)
 	splitter, err := subband.NewSplittingFilter(1, 2)
 	require.NoError(t, err)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/pion/apm/aec"
+	"github.com/pion/apm/hpf"
 	"github.com/pion/apm/internal/subband"
 	"github.com/stretchr/testify/require"
 )
@@ -16,6 +17,7 @@ import (
 // echoChain drives an echo canceller like upstream APM does for a stream
 // with nothing else enabled. It is the reference of the Processor tests.
 type echoChain struct {
+	filter                          *hpf.Filter
 	canceller                       *aec.Canceller
 	renderSplitter, captureSplitter *subband.SplittingFilter
 	renderBands, captureBands       [][][]float32
@@ -26,6 +28,8 @@ func newEchoChain(t *testing.T, rate SampleRate, numRender, numCapture int) *ech
 	t.Helper()
 	var chain echoChain
 	var err error
+	chain.filter, err = hpf.New(int(rate), numCapture)
+	require.NoError(t, err)
 	chain.canceller, err = aec.New(int(rate), numRender, numCapture)
 	require.NoError(t, err)
 	chain.renderSplitter, chain.renderBands, err = newSplitter(rate, numRender)
@@ -52,6 +56,7 @@ func (c *echoChain) analyzeRender(t *testing.T, render [][]float32) {
 // processCapture processes a capture frame on the int16 scale in place.
 func (c *echoChain) processCapture(t *testing.T, capture [][]float32) {
 	t.Helper()
+	require.NoError(t, c.filter.Process(capture))
 	require.NoError(t, c.canceller.AnalyzeCapture(capture))
 	if c.captureSplitter == nil {
 		setSingleBand(c.captureSplit, capture)
@@ -95,8 +100,9 @@ func cloneScaledUp(data [][]float32) [][]float32 {
 }
 
 // The Processor drives the echo canceller like upstream APM: the render
-// signal is analyzed split in bands, the capture signal is analyzed on
-// the full band, then processed split in bands, for every channel.
+// signal is analyzed split in bands, the capture signal is high-pass
+// filtered and analyzed on the full band, then processed split in bands,
+// for every channel.
 func TestProcessor_DrivesEchoCanceller(t *testing.T) {
 	for _, tc := range []struct {
 		rate                  SampleRate
