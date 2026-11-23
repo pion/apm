@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: 2016-2022 The WebRTC project authors
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
-// SPDX-License-Identifier: MIT AND BSD-3-Clause
+// SPDX-License-Identifier: MIT
 
 package aec
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"testing"
@@ -13,144 +13,139 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNew_RejectsBadRate(t *testing.T) {
-	_, err := New(DefaultConfig(), 8000, 1)
-	assert.ErrorIs(t, err, ErrUnsupportedSampleRate)
-	_, err = New(DefaultConfig(), 48000, 1) // Multi-band is not ported.
-	assert.ErrorIs(t, err, ErrUnsupportedSampleRate)
+func TestNew_RejectsBadArguments(t *testing.T) {
+	for _, rate := range []int{8000, 44100} {
+		_, err := New(rate, 1, 1)
+		assert.ErrorIs(t, err, ErrUnsupportedSampleRate, "rate %d", rate)
+	}
+	_, err := New(16000, 0, 1)
+	assert.ErrorIs(t, err, ErrInvalidChannels)
+	_, err = New(16000, 1, 0)
+	assert.ErrorIs(t, err, ErrInvalidChannels)
 }
 
-// TestCanceller_ConvergesOnFixedEchoPath drives the canceller with a known
-// far-end signal convolved with a fixed IR. After enough frames the
-// filter should converge and reduce echo by a meaningful margin.
-func TestCanceller_ConvergesOnFixedEchoPath(t *testing.T) {
-	canceller, err := New(DefaultConfig(), 16000, 1)
+func TestCanceller_RejectsBadFrames(t *testing.T) {
+	canceller, err := New(32000, 2, 1)
 	require.NoError(t, err)
-	rng := rand.New(rand.NewPCG(1, 1)) //nolint:gosec // Deterministic test signal.
 
-	const seconds = 5
-	const frames = seconds * 100 // 100 frames/s @ 10 ms each
-	const samplesPerFrame = kFrameSize
+	assert.NoError(t, canceller.AnalyzeRender(newSplitBandsFrame(2, 2)))
+	assert.ErrorIs(t, canceller.AnalyzeRender(newSplitBandsFrame(1, 2)), ErrFrameShape)
+	assert.ErrorIs(t, canceller.AnalyzeRender(newSplitBandsFrame(2, 3)), ErrFrameShape)
+	assert.ErrorIs(t, canceller.AnalyzeRender([][][]float32{{make([]float32, 80), nil}, {nil, nil}}), ErrFrameShape)
 
-	// IR: exponentially-decaying random response, 256 samples (~16 ms),
-	// well within the 13-block (832-sample) filter.
-	const irLen = 256
-	ir := make([]float32, irLen)
-	decay := math.Pow(10, -3.0/(0.05*16000)) // RT60 ≈ 50 ms
-	env := 1.0
-	for i := range ir {
-		ir[i] = float32(rng.NormFloat64() * env * 0.1)
-		env *= decay
-	}
-	ir[0] = 1 // direct path
+	assert.NoError(t, canceller.AnalyzeCapture([][]float32{make([]float32, 320)}))
+	assert.ErrorIs(t, canceller.AnalyzeCapture([][]float32{make([]float32, 160)}), ErrFrameShape)
+	assert.ErrorIs(t, canceller.AnalyzeCapture(make([][]float32, 2)), ErrFrameShape)
 
-	// Generate the full far-end signal first so the echo can be
-	// precomputed. AEC3 operates on float samples at int16 scale (the
-	// noise gates in the gain update assume this range).
-	const scale = 32768.0
-	total := frames * samplesPerFrame
-	far := make([]float32, total)
-	for i := range far {
-		far[i] = float32(rng.NormFloat64() * 0.3 * scale)
-	}
-	echo := convolve(far, ir)
-	mic := echo[:total]
-
-	out := make([]float32, total)
-	farFrame := make([]float32, samplesPerFrame)
-	micFrame := make([]float32, samplesPerFrame)
-	for f := range frames {
-		off := f * samplesPerFrame
-		copy(farFrame, far[off:off+samplesPerFrame])
-		copy(micFrame, mic[off:off+samplesPerFrame])
-		require.NoError(t, canceller.AnalyzeRender([][]float32{farFrame}))
-		require.NoError(t, canceller.ProcessCapture([][]float32{micFrame}))
-		copy(out[off:], micFrame)
-	}
-
-	// Examine the converged tail (last 1.5 s).
-	tailStart := max(total-int(seconds*16000)*3/10, 0)
-	erle := computeERLE(mic[tailStart:], out[tailStart:], 160)
-	t.Logf("converged ERLE = %.2f dB (frames=%d, IR length=%d)", erle, frames, irLen)
-	assert.GreaterOrEqual(t, erle, 5.0, "expected meaningful ERLE on fixed echo path")
+	assert.NoError(t, canceller.ProcessCapture(newSplitBandsFrame(1, 2), false))
+	assert.ErrorIs(t, canceller.ProcessCapture(newSplitBandsFrame(2, 2), false), ErrFrameShape)
+	assert.ErrorIs(t, canceller.ProcessCapture(newSplitBandsFrame(1, 1), false), ErrFrameShape)
 }
 
-func convolve(x, h []float32) []float32 {
-	y := make([]float32, len(x)+len(h)-1)
-	for i, xi := range x {
-		if xi == 0 {
-			continue
-		}
-		for j, hj := range h {
-			y[i+j] += xi * hj
-		}
-	}
-
-	return y
+// echoScenario feeds a Canceller with noise in every band of the render
+// channels, and with a capture signal that is the mean of the render
+// channels, delayed and scaled by 0.5.
+type echoScenario struct {
+	canceller       *Canceller
+	rng             *rand.Rand
+	render, capture [][][]float32
+	fullBand        [][]float32
+	delayLines      [][]float32
+	position        int
 }
 
-func computeERLE(mic, residual []float32, frameLen int) float64 {
-	if frameLen <= 0 || len(mic) < frameLen {
-		return math.NaN()
+func newEchoScenario(t *testing.T, sampleRateHz, numRender, numCapture, delaySamples int) *echoScenario {
+	t.Helper()
+	canceller, err := New(sampleRateHz, numRender, numCapture)
+	require.NoError(t, err)
+	numBands := numBandsForRate(sampleRateHz)
+	scenario := &echoScenario{
+		canceller:  canceller,
+		rng:        rand.New(rand.NewPCG(1, uint64(sampleRateHz))), //nolint:gosec // Deterministic test signal.
+		render:     newSplitBandsFrame(numRender, numBands),
+		capture:    newSplitBandsFrame(numCapture, numBands),
+		fullBand:   make([][]float32, numCapture),
+		delayLines: make([][]float32, numBands),
 	}
-	var pm, pr float64
-	for i := 0; i+frameLen <= len(mic); i += frameLen {
-		var fm, fr float64
-		for j := range frameLen {
-			m := float64(mic[i+j])
-			r := float64(residual[i+j])
-			fm += m * m
-			fr += r * r
-		}
-		pm += fm
-		pr += fr
+	for band := range scenario.delayLines {
+		scenario.delayLines[band] = make([]float32, delaySamples)
 	}
-	if pr <= 0 {
-		return math.Inf(+1)
-	}
-	if pm <= 0 {
-		return math.Inf(-1)
+	for ch := range scenario.fullBand {
+		scenario.fullBand[ch] = make([]float32, numBands*splitBandSize)
 	}
 
-	return 10 * math.Log10(pm/pr)
+	return scenario
+}
+
+// step processes one frame and returns the energies of the echo and of
+// the output.
+func (e *echoScenario) step(t *testing.T) (echoEnergy, outputEnergy float64) {
+	t.Helper()
+	for band, delayLine := range e.delayLines {
+		for k := range splitBandSize {
+			var mean float32
+			for ch := range e.render {
+				sample := float32(e.rng.NormFloat64() * 3000)
+				e.render[ch][band][k] = sample
+				mean += sample / float32(len(e.render))
+			}
+			position := (e.position + k) % len(delayLine)
+			echo := delayLine[position]
+			delayLine[position] = 0.5 * mean
+			for ch := range e.capture {
+				e.capture[ch][band][k] = echo
+			}
+			echoEnergy += float64(echo) * float64(echo)
+		}
+	}
+	e.position += splitBandSize
+
+	require.NoError(t, e.canceller.AnalyzeRender(e.render))
+	require.NoError(t, e.canceller.AnalyzeCapture(e.fullBand))
+	require.NoError(t, e.canceller.ProcessCapture(e.capture, false))
+	for _, sample := range e.capture[0] {
+		for _, value := range sample {
+			outputEnergy += float64(value) * float64(value)
+		}
+	}
+
+	return echoEnergy, outputEnergy
+}
+
+func TestCanceller_RemovesEcho(t *testing.T) {
+	for _, tc := range []struct{ sampleRateHz, numRender, numCapture int }{
+		{16000, 1, 1}, {32000, 1, 1}, {48000, 1, 1}, {16000, 2, 2}, {48000, 2, 2}, {48000, 2, 1},
+	} {
+		t.Run(fmt.Sprintf("%d_%d_%d", tc.sampleRateHz, tc.numRender, tc.numCapture), func(t *testing.T) {
+			const delaySamples = 400
+			scenario := newEchoScenario(t, tc.sampleRateHz, tc.numRender, tc.numCapture, delaySamples)
+			var echoEnergy, outputEnergy float64
+			for index := range 500 {
+				echo, output := scenario.step(t)
+				if index >= 400 {
+					echoEnergy += echo
+					outputEnergy += output
+				}
+			}
+			assert.Greater(t, 10*math.Log10(echoEnergy/outputEnergy), 20.0)
+			if tc.numRender > 1 {
+				return
+			}
+
+			metrics := scenario.canceller.Metrics()
+			assert.InDelta(t, 8, metrics.EchoReturnLoss, 3)
+			assert.Greater(t, metrics.EchoReturnLossEnhancement, 3.0)
+			assert.InDelta(t, delaySamples/16, metrics.DelayMs, 2*kBlockSizeMs)
+		})
+	}
 }
 
 func TestCanceller_ZeroAllocSteadyState(t *testing.T) {
-	canceller, err := New(DefaultConfig(), 16000, 1)
-	require.NoError(t, err)
-
-	far := [][]float32{make([]float32, kFrameSize)}
-	near := [][]float32{make([]float32, kFrameSize)}
-	process := func() {
-		_ = canceller.AnalyzeRender(far)
-		_ = canceller.ProcessCapture(near)
+	scenario := newEchoScenario(t, 48000, 2, 2, 100)
+	// The canceller is set up again when it detects stereo content, after
+	// 2 seconds.
+	for range 300 {
+		scenario.step(t)
 	}
-	for range 10 {
-		process()
-	}
-	assert.Zero(t, testing.AllocsPerRun(100, process))
-}
-
-// With no far-end signal the canceller only delays the capture signal by
-// the block framer's one block.
-func TestCanceller_DelaysCaptureByOneBlock(t *testing.T) {
-	canceller, err := New(DefaultConfig(), 16000, 1)
-	require.NoError(t, err)
-
-	const numFrames = 10
-	far := [][]float32{make([]float32, kFrameSize)}
-	input := make([]float32, numFrames*kFrameSize)
-	for i := range input {
-		input[i] = float32(i%100) - 50
-	}
-	output := make([]float32, 0, len(input))
-	for i := range numFrames {
-		near := [][]float32{append([]float32(nil), input[i*kFrameSize:(i+1)*kFrameSize]...)}
-		require.NoError(t, canceller.AnalyzeRender(far))
-		require.NoError(t, canceller.ProcessCapture(near))
-		output = append(output, near[0]...)
-	}
-
-	assert.Equal(t, make([]float32, kBlockSize), output[:kBlockSize])
-	assert.Equal(t, input[:len(input)-kBlockSize], output[kBlockSize:])
+	assert.Zero(t, testing.AllocsPerRun(100, func() { scenario.step(t) }))
 }

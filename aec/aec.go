@@ -10,86 +10,136 @@ import (
 )
 
 var (
-	// ErrUnsupportedSampleRate is returned for sample rates other than 16 kHz.
-	ErrUnsupportedSampleRate = errors.New("aec: only 16 kHz is supported")
-	// ErrInvalidChannels is returned when the channel count is not positive.
-	ErrInvalidChannels = errors.New("aec: numChannels must be > 0")
+	// ErrUnsupportedSampleRate is returned for sample rates other than 16,
+	// 32 and 48 kHz.
+	ErrUnsupportedSampleRate = errors.New("aec: sample rate must be 16, 32 or 48 kHz")
+	// ErrInvalidChannels is returned when a channel count is not positive.
+	ErrInvalidChannels = errors.New("aec: channel counts must be > 0")
 	// ErrFrameShape is returned when a frame does not match the configured shape.
 	ErrFrameShape = errors.New("aec: frame shape mismatch")
 )
 
-// Canceller is the public single-stream AEC. One per stream; not safe
-// for concurrent use.
+// Canceller is the echo canceller of one stream, with the upstream
+// default configs of EchoCanceller3. Not safe for concurrent use.
+//
+// It allocates when it detects stereo content in the render signal, to
+// set up the processing of all the render channels, like upstream.
+//
+// It works on 10 ms frames on the int16 scale. A frame split in bands is
+// indexed by channel, band and sample: it has one 16 kHz band at 16 kHz,
+// two at 32 kHz and three at 48 kHz, of 160 samples each.
 type Canceller struct {
-	rate     int
-	channels int
-	impls    []*echoCanceller // one per capture channel
+	impl               *echoCanceller3
+	numBands           int
+	numRenderChannels  int
+	numCaptureChannels int
 }
 
-// Config configures a Canceller.
-type Config struct {
-	// FilterLengthBlocks sets the adaptive filter length in 4 ms blocks.
-	// Defaults to 13 (≈52 ms at 16 kHz), matching upstream's refined.
-	FilterLengthBlocks int
+// Metrics holds the metrics of a Canceller.
+type Metrics struct {
+	// EchoReturnLoss is the echo return loss, in dB.
+	EchoReturnLoss float64
+	// EchoReturnLossEnhancement is the echo return loss enhancement, in dB.
+	EchoReturnLossEnhancement float64
+	// DelayMs is the delay of the render signal in the capture signal, in ms.
+	DelayMs int
 }
 
-// DefaultConfig returns the upstream default refined-filter length:
-// 13 blocks (≈52 ms at 16 kHz).
-func DefaultConfig() Config { return Config{FilterLengthBlocks: 13} }
-
-// New constructs a Canceller for the given stream parameters. Only
-// 16 kHz is supported in this port; other rates return an error.
-func New(cfg Config, sampleRateHz, numChannels int) (*Canceller, error) {
-	if sampleRateHz != 16000 {
+// New constructs a Canceller for a stream at 16, 32 or 48 kHz.
+func New(sampleRateHz, numRenderChannels, numCaptureChannels int) (*Canceller, error) {
+	switch sampleRateHz {
+	case 16000, 32000, 48000:
+	default:
 		return nil, fmt.Errorf("%w: got %d Hz", ErrUnsupportedSampleRate, sampleRateHz)
 	}
-	if numChannels <= 0 {
+	if numRenderChannels <= 0 || numCaptureChannels <= 0 {
 		return nil, ErrInvalidChannels
 	}
-	if cfg.FilterLengthBlocks <= 0 {
-		cfg.FilterLengthBlocks = 13
-	}
-	c := &Canceller{rate: sampleRateHz, channels: numChannels, impls: make([]*echoCanceller, numChannels)}
-	for i := range c.impls {
-		c.impls[i] = newEchoCanceller(cfg.FilterLengthBlocks)
+
+	// Like upstream APM when the user sets no config.
+	multichannelConfig := defaultMultichannelEchoCanceller3Config()
+	impl, err := newEchoCanceller3(
+		defaultEchoCanceller3Config(), &multichannelConfig, sampleRateHz, numRenderChannels, numCaptureChannels)
+	if err != nil {
+		return nil, err
 	}
 
-	return c, nil
+	return &Canceller{
+		impl:               impl,
+		numBands:           numBandsForRate(sampleRateHz),
+		numRenderChannels:  numRenderChannels,
+		numCaptureChannels: numCaptureChannels,
+	}, nil
 }
 
-// AnalyzeRender pushes one 10 ms / 160-sample far-end frame per channel.
-// Call once per frame before ProcessCapture.
-func (c *Canceller) AnalyzeRender(far [][]float32) error {
-	if len(far) != c.channels {
-		return fmt.Errorf("%w: far has %d channels, want %d", ErrFrameShape, len(far), c.channels)
+// AnalyzeRender queues one far-end frame split in bands. The frame is
+// left unchanged.
+func (c *Canceller) AnalyzeRender(render [][][]float32) error {
+	if err := c.checkBands(render, c.numRenderChannels); err != nil {
+		return err
 	}
-	for i, ch := range far {
-		if err := c.impls[i].AnalyzeRender(ch); err != nil {
-			return err
-		}
-	}
+	c.impl.analyzeRender(render)
 
 	return nil
 }
 
-// ProcessCapture applies echo cancellation to one 10 ms / 160-sample
-// near-end frame in place per channel.
-func (c *Canceller) ProcessCapture(near [][]float32) error {
-	if len(near) != c.channels {
-		return fmt.Errorf("%w: near has %d channels, want %d", ErrFrameShape, len(near), c.channels)
+// AnalyzeCapture analyzes one near-end frame before it is split in bands.
+// The frame is indexed by channel and sample. Call it before
+// ProcessCapture.
+func (c *Canceller) AnalyzeCapture(capture [][]float32) error {
+	if len(capture) != c.numCaptureChannels {
+		return fmt.Errorf("%w: got %d channels, want %d", ErrFrameShape, len(capture), c.numCaptureChannels)
 	}
-	for i, ch := range near {
-		if err := c.impls[i].ProcessCapture(ch); err != nil {
-			return err
+	for _, channel := range capture {
+		if len(channel) != c.numBands*splitBandSize {
+			return fmt.Errorf("%w: got %d samples, want %d", ErrFrameShape, len(channel), c.numBands*splitBandSize)
 		}
 	}
+	c.impl.analyzeCapture(capture)
 
 	return nil
 }
 
-// Reset clears all adaptation state.
-func (c *Canceller) Reset() {
-	for _, e := range c.impls {
-		e.HandleEchoPathChange()
+// ProcessCapture removes the echo from one near-end frame split in
+// bands, in place. levelChange tells that a gain applied to the capture
+// or the render signal has changed since the last frame.
+func (c *Canceller) ProcessCapture(capture [][][]float32, levelChange bool) error {
+	if err := c.checkBands(capture, c.numCaptureChannels); err != nil {
+		return err
 	}
+	c.impl.processCapture(capture, nil, levelChange)
+
+	return nil
+}
+
+// SetAudioBufferDelay provides an external estimate of the delay of the
+// audio buffers, in ms.
+func (c *Canceller) SetAudioBufferDelay(delayMs int) {
+	c.impl.setAudioBufferDelay(delayMs)
+}
+
+// Metrics returns the current metrics.
+func (c *Canceller) Metrics() Metrics {
+	erl, erle, delayMs := c.impl.getMetrics()
+
+	return Metrics{EchoReturnLoss: erl, EchoReturnLossEnhancement: erle, DelayMs: delayMs}
+}
+
+// checkBands checks the shape of a frame split in bands.
+func (c *Canceller) checkBands(frame [][][]float32, numChannels int) error {
+	if len(frame) != numChannels {
+		return fmt.Errorf("%w: got %d channels, want %d", ErrFrameShape, len(frame), numChannels)
+	}
+	for _, bands := range frame {
+		if len(bands) != c.numBands {
+			return fmt.Errorf("%w: got %d bands, want %d", ErrFrameShape, len(bands), c.numBands)
+		}
+		for _, band := range bands {
+			if len(band) != splitBandSize {
+				return fmt.Errorf("%w: got %d samples, want %d", ErrFrameShape, len(band), splitBandSize)
+			}
+		}
+	}
+
+	return nil
 }

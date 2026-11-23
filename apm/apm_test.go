@@ -126,7 +126,7 @@ func TestNew_ValidatesReverseStream(t *testing.T) {
 
 	cfg.AEC.Enabled = true
 	_, err = New(cfg)
-	assert.ErrorIs(t, err, ErrInvalidChannels)
+	assert.NoError(t, err, "the echo canceller takes any number of render channels")
 }
 
 func TestProcessor_MixedRatesWithAEC(t *testing.T) {
@@ -174,7 +174,7 @@ func TestProcessor_AnalyzesNoiseBeforeEchoCancellation(t *testing.T) {
 	proc, err := New(cfg)
 	require.NoError(t, err)
 
-	canceller, err := aec.New(aec.DefaultConfig(), 16000, 1)
+	canceller, err := aec.New(16000, 1, 1)
 	require.NoError(t, err)
 	suppressor, err := ns.NewSuppressor(ns.Config{TargetLevel: mapNSLevel(cfg.NS.Level)}, 16000, 1)
 	require.NoError(t, err)
@@ -190,9 +190,10 @@ func TestProcessor_AnalyzesNoiseBeforeEchoCancellation(t *testing.T) {
 			wantFar[0][j] = far.Data[0][j] * apmScale
 			want[0][j] = near.Data[0][j] * apmScale
 		}
-		require.NoError(t, canceller.AnalyzeRender(wantFar))
+		require.NoError(t, canceller.AnalyzeRender([][][]float32{wantFar}))
+		require.NoError(t, canceller.AnalyzeCapture(want))
 		require.NoError(t, suppressor.Analyze(want))
-		require.NoError(t, canceller.ProcessCapture(want))
+		require.NoError(t, canceller.ProcessCapture([][][]float32{want}, false))
 		require.NoError(t, suppressor.Process(want))
 		scaleDown(want)
 

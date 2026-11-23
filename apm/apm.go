@@ -31,9 +31,6 @@ var (
 )
 
 const (
-	// bandRate is the sample rate of one band, in Hz. A 16 kHz stream is
-	// a single band.
-	bandRate = 16000
 	// bandSamples is the per-band sample count of a 10 ms frame.
 	bandSamples = 160
 )
@@ -57,6 +54,10 @@ type Processor struct {
 	splitRender  *subband.SplittingFilter
 	captureBands [][][]float32 // [band][channel][sample]; allocated once at New()
 	renderBands  [][][]float32
+	// Views of the capture and the render signals for the echo canceller,
+	// indexed by channel and band like upstream's AudioBuffer::split_bands.
+	captureSplit [][][]float32
+	renderSplit  [][][]float32
 
 	// Capture stream at the processing rate, with the resamplers to and
 	// from it. All nil unless the stream rate differs and a module is
@@ -125,11 +126,6 @@ func resolveConfig(cfg Config) (Config, error) {
 	if cfg.ReverseNumChannels < 0 {
 		return cfg, fmt.Errorf("%w: reverse %d", ErrInvalidChannels, cfg.ReverseNumChannels)
 	}
-	// The echo canceller pairs each capture channel with one render channel.
-	if cfg.AEC.Enabled && cfg.ReverseNumChannels != cfg.NumChannels {
-		return cfg, fmt.Errorf("%w: echo cancellation needs %d reverse channels, got %d",
-			ErrInvalidChannels, cfg.NumChannels, cfg.ReverseNumChannels)
-	}
 
 	return cfg, nil
 }
@@ -146,6 +142,9 @@ func (p *Processor) initCapture(bandModules bool) error {
 		if err != nil {
 			return fmt.Errorf("apm: splitting filter: %w", err)
 		}
+	}
+	if cfg.AEC.Enabled {
+		p.captureSplit = splitBandViews(p.captureBands, cfg.NumChannels)
 	}
 	if p.procRate == cfg.SampleRate || (!bandModules && !cfg.AGC.Enabled) {
 		return nil
@@ -178,8 +177,35 @@ func (p *Processor) initRender() error {
 	if err != nil {
 		return fmt.Errorf("apm: render splitting filter: %w", err)
 	}
+	p.renderSplit = splitBandViews(p.renderBands, cfg.ReverseNumChannels)
+	if p.splitRender == nil {
+		setSingleBand(p.renderSplit, p.renderBuffer)
+	}
 
 	return nil
+}
+
+// splitBandViews returns the views of a signal split in bands, indexed by
+// channel and band. bands is indexed by band and channel, and is nil for
+// a signal with a single band, whose views are set with setSingleBand.
+func splitBandViews(bands [][][]float32, numChannels int) [][][]float32 {
+	views := make([][][]float32, numChannels)
+	for ch := range views {
+		views[ch] = make([][]float32, max(len(bands), 1))
+		for band := range bands {
+			views[ch][band] = bands[band][ch]
+		}
+	}
+
+	return views
+}
+
+// setSingleBand points the views of a signal with a single band to its
+// channels.
+func setSingleBand(views [][][]float32, channels [][]float32) {
+	for ch := range views {
+		views[ch][0] = channels[ch]
+	}
 }
 
 // newSplitter returns a band splitting filter and its buffers for 32 and
@@ -230,7 +256,9 @@ func (p *Processor) initModules() error {
 		p.agc = c
 	}
 	if cfg.AEC.Enabled {
-		c, err := aec.New(aec.DefaultConfig(), bandRate, cfg.NumChannels)
+		// Like upstream with multi_channel_render and multi_channel_capture,
+		// which are on by default: every channel is processed.
+		c, err := aec.New(int(p.procRate), cfg.ReverseNumChannels, cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: aec: %w", err)
 		}
@@ -282,6 +310,13 @@ func (p *Processor) processCapture(data [][]float32) error {
 			return err
 		}
 	}
+	// Upstream detects the saturation of the capture signal on the full
+	// band, before the split.
+	if p.aec != nil {
+		if err := p.aec.AnalyzeCapture(data); err != nil {
+			return err
+		}
+	}
 	if err := p.processBands(data); err != nil {
 		return err
 	}
@@ -292,10 +327,14 @@ func (p *Processor) processCapture(data [][]float32) error {
 	return nil
 }
 
-// processBands runs the modules that work on the 16 kHz band: on the
-// signal itself at 16 kHz, on its lowest band at 32 and 48 kHz.
+// processBands runs the modules that work on the 16 kHz bands: on the
+// signal itself at 16 kHz, on its bands at 32 and 48 kHz.
 func (p *Processor) processBands(data [][]float32) error {
 	if p.splitCapture == nil {
+		if p.aec != nil {
+			setSingleBand(p.captureSplit, data)
+		}
+
 		return p.processInner(data, nil)
 	}
 	if err := p.splitCapture.Analysis(data, p.captureBands); err != nil {
@@ -320,7 +359,7 @@ func (p *Processor) processInner(channels [][]float32, upperBands [][][]float32)
 		}
 	}
 	if p.aec != nil {
-		if err := p.aec.ProcessCapture(channels); err != nil {
+		if err := p.aec.ProcessCapture(p.captureSplit, false); err != nil {
 			return err
 		}
 	}
@@ -364,8 +403,8 @@ func allocBandBuffers(numBands, numChannels int) [][][]float32 {
 }
 
 // ProcessReverseStream analyzes one 10 ms far-end (render) frame. The
-// echo canceller consumes this stream; other modules ignore it. The
-// frame is left unchanged.
+// echo canceller consumes this stream, with the next near-end frame;
+// other modules ignore it. The frame is left unchanged.
 func (p *Processor) ProcessReverseStream(far *Frame) error {
 	if err := p.validateFrame(far, p.cfg.ReverseSampleRate, p.cfg.ReverseNumChannels); err != nil {
 		return err
@@ -385,14 +424,13 @@ func (p *Processor) ProcessReverseStream(far *Frame) error {
 	}
 	scaleUp(p.renderBuffer)
 
-	if p.splitRender == nil {
-		return p.aec.AnalyzeRender(p.renderBuffer)
-	}
-	if err := p.splitRender.Analysis(p.renderBuffer, p.renderBands); err != nil {
-		return err
+	if p.splitRender != nil {
+		if err := p.splitRender.Analysis(p.renderBuffer, p.renderBands); err != nil {
+			return err
+		}
 	}
 
-	return p.aec.AnalyzeRender(p.renderBands[0])
+	return p.aec.AnalyzeRender(p.renderSplit)
 }
 
 // SetStreamDelayMS reports round-trip stream delay (ms) to the echo canceller.

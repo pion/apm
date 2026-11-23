@@ -44,11 +44,8 @@ func TestProcessor_SplitBand(t *testing.T) {
 	}
 }
 
-// TestProcessor_48kHz_AEC drives the AEC at 48 kHz with a band-limited
-// far-end signal whose energy sits in band 0 (below 8 kHz). The single-band
-// AEC in band 0 should cancel most of the echo, which verifies the
-// multi-band wiring (split, process band 0, synthesize) end to end.
-// Full-band echo handling needs upper-band gain plumbing.
+// The echo canceller works on all the bands: it removes an echo that is
+// mostly above 8 kHz.
 func TestProcessor_48kHz_AEC(t *testing.T) {
 	cfg := DefaultConfig(Rate48k, 1)
 	cfg.MaxProcessingRate = Rate48k
@@ -60,7 +57,11 @@ func TestProcessor_48kHz_AEC(t *testing.T) {
 	const delay = 240
 	total := frames * Rate48k.SamplesPerFrame()
 
-	far := bandLimitedNoise(total)
+	rng := rand.New(rand.NewPCG(3, 3)) //nolint:gosec // Deterministic test signal.
+	far := make([]float32, total)
+	for i := range far {
+		far[i] = float32(rng.NormFloat64() * 0.1)
+	}
 	mic := make([]float32, total)
 	for i := delay; i < total; i++ {
 		mic[i] = 0.5 * far[i-delay]
@@ -74,29 +75,7 @@ func TestProcessor_48kHz_AEC(t *testing.T) {
 		pr += float64(out[i]) * float64(out[i])
 	}
 	require.Positive(t, pr, "output had zero power")
-	erleDB := 10 * math.Log10(pm/pr)
-	t.Logf("48 kHz AEC steady-state ERLE = %.1f dB (band-limited echo)", erleDB)
-	assert.GreaterOrEqual(t, erleDB, 3.0)
-}
-
-// bandLimitedNoise returns noise low-passed by an 8-tap moving average so
-// its energy sits mostly below 8 kHz at 48 kHz.
-func bandLimitedNoise(n int) []float32 {
-	rng := rand.New(rand.NewPCG(3, 3)) //nolint:gosec // Deterministic test signal.
-	raw := make([]float32, n+8)
-	for i := range raw {
-		raw[i] = float32(rng.NormFloat64() * 0.1)
-	}
-	out := make([]float32, n)
-	for i := range n {
-		v := float32(0)
-		for k := range 8 {
-			v += raw[i+k]
-		}
-		out[i] = v / 8
-	}
-
-	return out
+	assert.GreaterOrEqual(t, 10*math.Log10(pm/pr), 30.0)
 }
 
 // runEchoPath feeds far and mic through proc frame by frame at 48 kHz and
@@ -269,9 +248,10 @@ func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 	require.NoError(t, err)
 	captureSplitter, err := subband.NewSplittingFilter(1, 3)
 	require.NoError(t, err)
-	canceller, err := aec.New(aec.DefaultConfig(), 16000, 1)
+	canceller, err := aec.New(48000, 1, 1)
 	require.NoError(t, err)
 	renderBands, captureBands := allocBandBuffers(3, 1), allocBandBuffers(3, 1)
+	renderSplit, captureSplit := splitBandViews(renderBands, 1), splitBandViews(captureBands, 1)
 
 	rng := rand.New(rand.NewPCG(13, 0)) //nolint:gosec // Deterministic test signal.
 	for i := range 30 {
@@ -287,12 +267,13 @@ func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 		require.NoError(t, renderResampler.Resample(far.Data[0], render[0]))
 		scaleUp(render)
 		require.NoError(t, renderSplitter.Analysis(render, renderBands))
-		require.NoError(t, canceller.AnalyzeRender(renderBands[0]))
+		require.NoError(t, canceller.AnalyzeRender(renderSplit))
 
 		want := [][]float32{append([]float32(nil), near.Data[0]...)}
 		scaleUp(want)
+		require.NoError(t, canceller.AnalyzeCapture(want))
 		require.NoError(t, captureSplitter.Analysis(want, captureBands))
-		require.NoError(t, canceller.ProcessCapture(captureBands[0]))
+		require.NoError(t, canceller.ProcessCapture(captureSplit, false))
 		require.NoError(t, captureSplitter.Synthesis(captureBands, want))
 		scaleDown(want)
 
