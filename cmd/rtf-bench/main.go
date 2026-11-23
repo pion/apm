@@ -78,10 +78,14 @@ func run(opts options) error {
 	per := sr.SamplesPerFrame()
 	totalFrames := opts.rate * opts.seconds / per
 	rng := rand.New(rand.NewPCG(7, 7)) //nolint:gosec // Deterministic benchmark signal.
-	frame := apm.NewFrame(sr, opts.channels)
 	// Pre-fill with white noise so the workload isn't trivial-zero data.
-	for c := range opts.channels {
-		copy(frame.Data[c], synth.WhiteNoise(per, rng))
+	frame := noiseFrame(sr, opts.channels, rng)
+	// The echo canceller only processes the capture once it has render
+	// frames.
+	var far *apm.Frame
+	if opts.aec {
+		far = noiseFrame(sr, opts.channels, rng)
+		_ = proc.ProcessReverseStream(far)
 	}
 	_ = proc.ProcessStream(frame) // warm-up
 
@@ -95,6 +99,9 @@ func run(opts options) error {
 
 	start := time.Now()
 	for range totalFrames {
+		if far != nil {
+			_ = proc.ProcessReverseStream(far)
+		}
 		_ = proc.ProcessStream(frame)
 	}
 	wall := time.Since(start)
@@ -115,6 +122,16 @@ func run(opts options) error {
 		"rtf":      rtf,
 		"config":   cfg,
 	})
+}
+
+// noiseFrame returns a frame of white noise.
+func noiseFrame(rate apm.SampleRate, channels int, rng *rand.Rand) *apm.Frame {
+	frame := apm.NewFrame(rate, channels)
+	for c := range channels {
+		copy(frame.Data[c], synth.WhiteNoise(rate.SamplesPerFrame(), rng))
+	}
+
+	return frame
 }
 
 // startProfile starts a CPU profile written to path and returns its stop function.

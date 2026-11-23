@@ -4,6 +4,7 @@
 package bench
 
 import (
+	"math/rand/v2"
 	"testing"
 
 	"github.com/pion/apm/apm"
@@ -67,4 +68,48 @@ func BenchmarkFullPipeline_PassthroughMono16k(b *testing.B) {
 		_ = proc.ProcessReverseStream(far)
 		_ = proc.ProcessStream(near)
 	}
+}
+
+// benchmarkEchoCanceller measures the time to process one 10 ms far-end
+// frame and one near-end frame that holds its echo, with the echo
+// canceller enabled.
+func benchmarkEchoCanceller(b *testing.B, rate apm.SampleRate, numCh int) {
+	b.Helper()
+	cfg := apm.DefaultConfig(rate, numCh)
+	cfg.AEC.Enabled = true
+	proc, err := apm.New(cfg)
+	require.NoError(b, err)
+
+	rng := rand.New(rand.NewPCG(5, 5)) //nolint:gosec // Deterministic benchmark signal.
+	far, near, echo := apm.NewFrame(rate, numCh), apm.NewFrame(rate, numCh), apm.NewFrame(rate, numCh)
+	for ch := range far.Data {
+		for i := range far.Data[ch] {
+			far.Data[ch][i] = float32(rng.NormFloat64() * 0.1)
+			echo.Data[ch][i] = 0.5 * far.Data[ch][i]
+		}
+	}
+	process := func() {
+		for ch := range near.Data {
+			copy(near.Data[ch], echo.Data[ch])
+		}
+		_ = proc.ProcessReverseStream(far)
+		_ = proc.ProcessStream(near)
+	}
+	// Let the canceller detect stereo content, which allocates.
+	for range 300 {
+		process()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		process()
+	}
+}
+
+func BenchmarkFullPipeline_AECMono16k(b *testing.B) {
+	benchmarkEchoCanceller(b, apm.Rate16k, 1)
+}
+
+func BenchmarkFullPipeline_AECStereo48k(b *testing.B) {
+	benchmarkEchoCanceller(b, apm.Rate48k, 2)
 }
