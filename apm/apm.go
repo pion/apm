@@ -70,6 +70,10 @@ type Processor struct {
 	// resampler is non-nil when the reverse rate differs.
 	renderBuffer    [][]float32
 	renderResampler *rateConverter
+
+	// Stream delay reported for the next capture frame.
+	streamDelayMs  int
+	streamDelaySet bool
 }
 
 // New constructs a Processor.
@@ -316,6 +320,7 @@ func (p *Processor) ProcessStream(near *Frame) error {
 	scaleUp(data)
 	err := p.processCapture(data)
 	scaleDown(data)
+	p.streamDelaySet = false
 	if err != nil {
 		return err
 	}
@@ -383,6 +388,9 @@ func (p *Processor) processInner(channels [][]float32, upperBands [][][]float32)
 		}
 	}
 	if p.aec != nil {
+		if p.streamDelaySet {
+			p.aec.SetAudioBufferDelay(p.streamDelayMs)
+		}
 		if err := p.aec.ProcessCapture(p.captureSplit, false); err != nil {
 			return err
 		}
@@ -457,11 +465,16 @@ func (p *Processor) ProcessReverseStream(far *Frame) error {
 	return p.aec.AnalyzeRender(p.renderSplit)
 }
 
-// SetStreamDelayMS reports round-trip stream delay (ms) to the echo canceller.
+// SetStreamDelayMS reports the delay in ms between a far-end frame passed
+// to ProcessReverseStream and its echo in the near-end frame passed to
+// ProcessStream. Call it before the ProcessStream it applies to. The echo
+// canceller takes it as the delay of the audio buffers.
 func (p *Processor) SetStreamDelayMS(ms int) error {
 	if ms < 0 || ms > 500 {
 		return fmt.Errorf("%w: %d", ErrStreamDelay, ms)
 	}
+	p.streamDelayMs = ms
+	p.streamDelaySet = true
 
 	return nil
 }

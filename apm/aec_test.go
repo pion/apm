@@ -54,7 +54,8 @@ func (c *echoChain) analyzeRender(t *testing.T, render [][]float32) {
 }
 
 // processCapture processes a capture frame on the int16 scale in place.
-func (c *echoChain) processCapture(t *testing.T, capture [][]float32) {
+// The stream delay is set when delayMs is not negative.
+func (c *echoChain) processCapture(t *testing.T, capture [][]float32, delayMs int) {
 	t.Helper()
 	require.NoError(t, c.filter.Process(capture))
 	require.NoError(t, c.canceller.AnalyzeCapture(capture))
@@ -62,6 +63,9 @@ func (c *echoChain) processCapture(t *testing.T, capture [][]float32) {
 		setSingleBand(c.captureSplit, capture)
 	} else {
 		require.NoError(t, c.captureSplitter.Analysis(capture, c.captureBands))
+	}
+	if delayMs >= 0 {
+		c.canceller.SetAudioBufferDelay(delayMs)
 	}
 	require.NoError(t, c.canceller.ProcessCapture(c.captureSplit, false))
 	if c.captureSplitter != nil {
@@ -124,7 +128,7 @@ func TestProcessor_DrivesEchoCanceller(t *testing.T) {
 
 				chain.analyzeRender(t, cloneScaledUp(far.Data))
 				want := cloneScaledUp(near.Data)
-				chain.processCapture(t, want)
+				chain.processCapture(t, want, -1)
 				scaleDown(want)
 
 				require.NoError(t, proc.ProcessReverseStream(far))
@@ -133,4 +137,52 @@ func TestProcessor_DrivesEchoCanceller(t *testing.T) {
 			}
 		})
 	}
+}
+
+// processorEchoOutputs runs a Processor and an echoChain on the same 16
+// kHz frames and returns their outputs. The render frames 40 to 55 are
+// skipped, which makes the echo canceller reset its render buffer.
+// control is called on the Processor before every capture frame, and
+// chainDelayMs gives the stream delay of the chain, or -1 for none.
+func processorEchoOutputs(
+	t *testing.T, control func(index int, proc *Processor), chainDelayMs func(index int) int,
+) (got, want [][]float32) {
+	t.Helper()
+	cfg := DefaultConfig(Rate16k, 1)
+	cfg.AEC.Enabled = true
+	proc, err := New(cfg)
+	require.NoError(t, err)
+	chain := newEchoChain(t, Rate16k, 1, 1)
+
+	rng := rand.New(rand.NewPCG(37, 0)) //nolint:gosec // Deterministic test signal.
+	for i := range 150 {
+		far, near := NewFrame(Rate16k, 1), NewFrame(Rate16k, 1)
+		echoFrames(rng, far, near, false)
+		reference := cloneScaledUp(near.Data)
+		if i < 40 || i >= 56 {
+			chain.analyzeRender(t, cloneScaledUp(far.Data))
+			require.NoError(t, proc.ProcessReverseStream(far))
+		}
+		chain.processCapture(t, reference, chainDelayMs(i))
+		scaleDown(reference)
+		control(i, proc)
+		require.NoError(t, proc.ProcessStream(near))
+		got = append(got, near.Data[0])
+		want = append(want, reference[0])
+	}
+
+	return got, want
+}
+
+// Like upstream, the stream delay is passed to the echo canceller before
+// the capture frame is processed.
+func TestProcessor_PassesStreamDelay(t *testing.T) {
+	const delayMs = 100
+	setDelay := func(_ int, proc *Processor) { require.NoError(t, proc.SetStreamDelayMS(delayMs)) }
+	got, want := processorEchoOutputs(t, setDelay, func(int) int { return delayMs })
+	require.Equal(t, want, got)
+
+	// The delay changes the output.
+	_, without := processorEchoOutputs(t, setDelay, func(int) int { return -1 })
+	require.NotEqual(t, without, got)
 }
