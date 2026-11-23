@@ -2,16 +2,13 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT AND BSD-3-Clause
 
-// Package aec exposes a Go port of WebRTC's AEC3 acoustic echo canceller.
+// Package aec is a Go port of WebRTC's AEC3 acoustic echo canceller.
 //
-// Canceller runs a single-channel 16 kHz path: an adaptive filter driven
-// by the coarse gain rule subtracts the loudspeaker echo from the
-// microphone, so the residual echo remains audible.
-//
-// The upstream EchoCanceller3 and its components are ported as
-// echoCanceller3, with the delay estimation, the dual filters, the echo
-// suppression and the multi-band and multi-channel paths. Canceller does
-// not use it yet.
+// Canceller runs the port of the upstream EchoCanceller3: it estimates
+// the delay of the echo, subtracts the echo with adaptive filters and
+// suppresses what remains, at 16, 32 and 48 kHz, for any number of
+// render and capture channels. The field trials, the neural residual
+// echo estimator and the metrics histograms of upstream are not ported.
 package aec
 
 import "math"

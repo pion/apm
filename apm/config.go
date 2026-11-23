@@ -62,7 +62,8 @@ type AGCConfig struct {
 	CompressionGain float32
 }
 
-// AECConfig controls the acoustic echo canceller.
+// AECConfig controls the acoustic echo canceller: AEC3 with the upstream
+// default configs, on every channel of the far-end and near-end streams.
 type AECConfig struct {
 	Enabled bool
 }
