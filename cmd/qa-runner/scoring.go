@@ -165,19 +165,19 @@ func scoreAEC(score *Score, clean []float32, rate int, rng *rand.Rand) error {
 	if err != nil {
 		return err
 	}
-	frame := apm.NewFrame(apm.SampleRate(rate), 1)
-	per := frame.NumSamples()
+	farFrame := apm.NewFrame(apm.SampleRate(rate), 1)
+	nearFrame := apm.NewFrame(apm.SampleRate(rate), 1)
+	per := nearFrame.NumSamples()
 
-	// Push far-end first, then capture.
-	for i := 0; i+per <= len(far); i += per {
-		copy(frame.Data[0], far[i:i+per])
-		_ = proc.ProcessReverseStream(frame)
-	}
+	// The echo canceller needs the far-end and the capture frames in time
+	// order.
 	out := make([]float32, len(mic))
 	for i := 0; i+per <= len(mic); i += per {
-		copy(frame.Data[0], mic[i:i+per])
-		_ = proc.ProcessStream(frame)
-		copy(out[i:i+per], frame.Data[0])
+		copy(farFrame.Data[0], far[i:i+per])
+		_ = proc.ProcessReverseStream(farFrame)
+		copy(nearFrame.Data[0], mic[i:i+per])
+		_ = proc.ProcessStream(nearFrame)
+		copy(out[i:i+per], nearFrame.Data[0])
 	}
 	score.ERLEdB = metrics.MaxConvergedERLE(mic, out, per)
 	score.DurationMS = (len(mic) * 1000) / rate
