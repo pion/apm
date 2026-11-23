@@ -22,3 +22,27 @@ suppressor_high_bands_suppression: 1 1 400 1
 suppressor_high_frequency_suppression: 16 1
 comfort_noise: -96.0340576
 multi_channel: 1 0 300 2
+multichannel_delay: 5 4 5 32 1 0 0.699999988 0.699999988 0.200000003 5 20 0 0 1
+multichannel_render_levels: 100 150 20 0
+multichannel_buffering: 250 8
+multichannel_filter_refined: 13 4.99999987e-05 0.0500000007 0.00100000005 2 20075344
+multichannel_filter_refined_initial: 12 0.00499999989 0.5 0.00100000005 2 20075344
+multichannel_filter_coarse: 11 0.949999988 20075344
+multichannel_filter_coarse_initial: 11 0.949999988 20075344
+multichannel_filter: 250 2.5 25 0 1 1 0 0
+multichannel_ep_strength: 1 0.829999983 0.829999983 1 0 0 1
+multichannel_render_alignment_mixing: 0 1 10000 1
+multichannel_capture_alignment_mixing: 0 1 10000 0
+multichannel_erle: 1 4 1.5 1 1 1 1
+multichannel_echo_removal_control: 0 0
+multichannel_echo_audibility: 256 64 128 10 10 10 0 0
+multichannel_echo_model: 50 1638400 10 27509.4199 0.300000012 1 1 1
+multichannel_suppressor: 4 1 0 5 5 8 0 9.99999975e-06 0
+multichannel_suppressor_normal_tuning: 0.300000012 0.400000006 0.300000012 0.0700000003 0.100000001 0.300000012 1.5 0.349999994
+multichannel_suppressor_nearend_tuning: 1.09000003 1.10000002 0.300000012 0.100000001 0.300000012 0.300000012 2 0.25
+multichannel_suppressor_dominant_nearend_detection: 0.25 10 30 50 12 1 1
+multichannel_suppressor_subband_nearend_detection: 1 1 1 1 1 1 1
+multichannel_suppressor_high_bands_suppression: 1 1 400 1
+multichannel_suppressor_high_frequency_suppression: 16 1
+multichannel_comfort_noise: -96.0340576
+multichannel_multi_channel: 1 0 300 2

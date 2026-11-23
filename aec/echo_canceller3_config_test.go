@@ -4,6 +4,7 @@
 package aec
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/pion/apm/internal/refdata"
@@ -247,4 +248,31 @@ func TestDefaultMultiChannelConfig_MatchesUpstream(t *testing.T) {
 		float32(cfg.stereoDetectionTimeoutThresholdSeconds),
 		cfg.stereoDetectionHysteresisSeconds,
 	})
+}
+
+// The reference file holds the upstream default multichannel config on
+// the lines prefixed with "multichannel_".
+func TestDefaultMultichannelConfig_MatchesUpstream(t *testing.T) {
+	const prefix = "multichannel_"
+	reference := loadConfigReference(t)
+	cfg := defaultMultichannelEchoCanceller3Config()
+
+	assert.Equal(t, reference[prefix+"filter_coarse"], coarseFilterValues(cfg.filter.coarse))
+	assert.Equal(t, reference[prefix+"filter_coarse_initial"], coarseFilterValues(cfg.filter.coarseInitial))
+	assert.Equal(t, reference[prefix+"suppressor_normal_tuning"], suppressorTuningValues(cfg.suppressor.normalTuning))
+
+	// Upstream changes nothing else.
+	changed := 0
+	for key, values := range reference {
+		if name, found := strings.CutPrefix(key, prefix); found && !assert.ObjectsAreEqual(reference[name], values) {
+			changed++
+		}
+	}
+	assert.Equal(t, 3, changed)
+
+	defaults := defaultEchoCanceller3Config()
+	cfg.filter.coarse = defaults.filter.coarse
+	cfg.filter.coarseInitial = defaults.filter.coarseInitial
+	cfg.suppressor.normalTuning = defaults.suppressor.normalTuning
+	assert.Equal(t, defaults, cfg)
 }

@@ -201,6 +201,24 @@ func defaultEchoCanceller3Config() echoCanceller3Config {
 	}
 }
 
+// defaultMultichannelEchoCanceller3Config matches
+// EchoCanceller3Config::CreateDefaultMultichannelConfig.
+func defaultMultichannelEchoCanceller3Config() echoCanceller3Config {
+	cfg := defaultEchoCanceller3Config()
+	// Use shorter and more rapidly adapting coarse filter to compensate for
+	// the increased number of total filter parameters to adapt.
+	cfg.filter.coarse.lengthBlocks = 11
+	cfg.filter.coarse.rate = 0.95
+	cfg.filter.coarseInitial.lengthBlocks = 11
+	cfg.filter.coarseInitial.rate = 0.95
+
+	// Use more conservative suppressor behavior for non-nearend speech.
+	cfg.suppressor.normalTuning.maxDecFactorLf = 0.35
+	cfg.suppressor.normalTuning.maxIncFactor = 1.5
+
+	return cfg
+}
+
 // epStrengthConfig mirrors EchoCanceller3Config::EpStrength.
 type epStrengthConfig struct {
 	defaultGain                            float32
