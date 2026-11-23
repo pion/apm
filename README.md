@@ -38,6 +38,11 @@ Supported rates are 8, 16, 32 and 48 kHz. As in WebRTC, processing runs at
 32 kHz at most by default; set `MaxProcessingRate` to `apm.Rate48k` for the
 full band.
 
+The echo canceller is the full AEC3: delay estimation, linear filters and
+echo suppression, on every band and channel. The far-end and near-end streams
+may differ in rate and channel count. Pass the far-end frame before the
+near-end frame of the same 10 ms.
+
 ### Roadmap
 The library is used as a part of our WebRTC implementation. Please refer to that [roadmap](https://github.com/pion/webrtc/issues/9) to track our major milestones.
 
