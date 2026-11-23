@@ -18,7 +18,9 @@ import (
 // echoChain drives an echo canceller like upstream APM does for a stream
 // with nothing else enabled. It is the reference of the Processor tests.
 type echoChain struct {
-	filter                          *hpf.Filter
+	filter *hpf.Filter
+	// postFilter is nil below 48 kHz.
+	postFilter                      *postFilter
 	canceller                       *aec.Canceller
 	renderSplitter, captureSplitter *subband.SplittingFilter
 	renderBands, captureBands       [][][]float32
@@ -33,6 +35,7 @@ func newEchoChain(t *testing.T, rate SampleRate, numRender, numCapture int) *ech
 	require.NoError(t, err)
 	chain.canceller, err = aec.New(int(rate), numRender, numCapture)
 	require.NoError(t, err)
+	chain.postFilter = newPostFilterIfNeeded(int(rate), numCapture)
 	chain.renderSplitter, chain.renderBands, err = newSplitter(rate, numRender)
 	require.NoError(t, err)
 	chain.captureSplitter, chain.captureBands, err = newSplitter(rate, numCapture)
@@ -71,6 +74,9 @@ func (c *echoChain) processCapture(t *testing.T, capture [][]float32, delayMs in
 	require.NoError(t, c.canceller.ProcessCapture(c.captureSplit, levelChange))
 	if c.captureSplitter != nil {
 		require.NoError(t, c.captureSplitter.Synthesis(c.captureBands, capture))
+	}
+	if c.postFilter != nil {
+		c.postFilter.process(capture)
 	}
 }
 
@@ -124,7 +130,7 @@ func cloneScaledUp(data [][]float32) [][]float32 {
 // The Processor drives the echo canceller like upstream APM: the render
 // signal is analyzed split in bands, the capture signal is high-pass
 // filtered and analyzed on the full band, then processed split in bands,
-// for every channel.
+// for every channel. At 48 kHz the post filter runs last.
 func TestProcessor_DrivesEchoCanceller(t *testing.T) {
 	for _, tc := range []struct {
 		rate                  SampleRate

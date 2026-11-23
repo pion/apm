@@ -47,6 +47,8 @@ type Processor struct {
 	ns  *ns.Suppressor
 	agc *agc.Controller
 	aec *aec.Canceller
+	// postFilter is set with the echo canceller at 48 kHz.
+	postFilter *postFilter
 
 	// Band splitting filters: non-nil at 32 and 48 kHz when a module
 	// works on the bands.
@@ -274,6 +276,7 @@ func (p *Processor) initModules() error {
 			return fmt.Errorf("apm: aec: %w", err)
 		}
 		p.aec = c
+		p.postFilter = newPostFilterIfNeeded(int(p.procRate), cfg.NumChannels)
 	}
 
 	return nil
@@ -351,24 +354,36 @@ func (p *Processor) processCapture(data [][]float32) error {
 			return err
 		}
 	}
-	// Upstream detects the saturation of the capture signal on the full
-	// band, before the split.
-	if p.aec != nil {
-		p.echoPathGainChange = p.inputVolumeChanged ||
-			(p.prevPlayoutVolume != p.playoutVolume && p.prevPlayoutVolume >= 0)
-		p.prevPlayoutVolume = p.playoutVolume
-		if err := p.aec.AnalyzeCapture(data); err != nil {
-			return err
-		}
+	if err := p.analyzeCapture(data); err != nil {
+		return err
 	}
 	if err := p.processBands(data); err != nil {
 		return err
 	}
 	if p.agc != nil {
-		return p.agc.Process(data)
+		if err := p.agc.Process(data); err != nil {
+			return err
+		}
+	}
+	if p.postFilter != nil {
+		p.postFilter.process(data)
 	}
 
 	return nil
+}
+
+// analyzeCapture prepares the echo canceller for a capture frame: it
+// detects the level changes and, like upstream, the saturation of the
+// capture signal on the full band, before the split.
+func (p *Processor) analyzeCapture(data [][]float32) error {
+	if p.aec == nil {
+		return nil
+	}
+	p.echoPathGainChange = p.inputVolumeChanged ||
+		(p.prevPlayoutVolume != p.playoutVolume && p.prevPlayoutVolume >= 0)
+	p.prevPlayoutVolume = p.playoutVolume
+
+	return p.aec.AnalyzeCapture(data)
 }
 
 // processBands runs the modules that work on the 16 kHz bands: on the

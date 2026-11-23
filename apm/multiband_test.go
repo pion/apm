@@ -252,6 +252,7 @@ func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 	require.NoError(t, err)
 	canceller, err := aec.New(48000, 1, 1)
 	require.NoError(t, err)
+	post := newPostFilterIfNeeded(48000, 1)
 	renderBands, captureBands := allocBandBuffers(3, 1), allocBandBuffers(3, 1)
 	renderSplit, captureSplit := splitBandViews(renderBands, 1), splitBandViews(captureBands, 1)
 
@@ -278,6 +279,7 @@ func TestProcessor_ResamplesRenderToCaptureRate(t *testing.T) {
 		require.NoError(t, captureSplitter.Analysis(want, captureBands))
 		require.NoError(t, canceller.ProcessCapture(captureSplit, false))
 		require.NoError(t, captureSplitter.Synthesis(captureBands, want))
+		post.process(want)
 		scaleDown(want)
 
 		require.NoError(t, proc.ProcessReverseStream(far))
