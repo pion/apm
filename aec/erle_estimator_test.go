@@ -9,6 +9,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -214,6 +215,8 @@ func TestErleEstimator_VerifyErleTrackingOnOnsets(t *testing.T) {
 // startup phase of 100 blocks and one with 4 filter sections. The first
 // is reset at block 850 without a delay change, the second with one.
 func TestErleEstimator_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	for _, tc := range erleScenarioCases() {
 		suffix := erleScenarioSuffix(tc.numRender, tc.numCapture)
 		t.Run(suffix[1:], func(t *testing.T) {

@@ -6,7 +6,6 @@ package apm
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"slices"
 	"testing"
 
@@ -163,18 +162,6 @@ func (s *upstreamScenario) step(t *testing.T, index int) {
 	}
 }
 
-// fusesMultiplyAdd tells whether the Go compiler fuses a multiplication
-// and an addition into one operation on this architecture, which changes
-// the rounding of the floating-point computations.
-func fusesMultiplyAdd() bool {
-	switch runtime.GOARCH {
-	case "arm64", "ppc64", "ppc64le", "riscv64", "s390x", "loong64":
-		return true
-	default:
-		return false
-	}
-}
-
 // upstreamCase is a scenario of TestProcessor_MatchesUpstream.
 type upstreamCase struct {
 	rate, maxRate         SampleRate
@@ -215,8 +202,14 @@ func (c upstreamCase) key() string {
 // echo and a saturation of the capture signal, are therefore compared
 // frame by frame, and the whole run is compared in distribution. The
 // mono 16 kHz scenario, that the moved sample leaves unchanged upstream,
-// is compared frame by frame over the whole run. No frame is compared
-// one by one on the architectures where Go fuses multiply-add.
+// is compared frame by frame over the whole run.
+//
+// On the architectures where Go fuses multiply-add, no frame is compared
+// one by one. Built with fused multiply-add, upstream differs from the
+// reference by up to 0.08 dB for the median frame, 0.25 dB for 90% of
+// the frames, and 6.65 dB on single frames, depending on which
+// operations the compiler fuses. The distribution is compared with
+// bounds above these.
 //
 // Each line of the reference file is keyed by "sample_rate
 // render_channels capture_channels max_processing_rate", plus "ns" and
@@ -271,16 +264,20 @@ func TestProcessor_MatchesUpstream(t *testing.T) {
 						continue
 					}
 					deviation := math.Abs(10 * math.Log10(float64(energy)/float64(want[2+ch])))
-					if index < tc.exactFrames && !fusesMultiplyAdd() {
+					if index < tc.exactFrames && !refdata.FusesMultiplyAdd {
 						require.LessOrEqual(t, deviation, 0.01, "frame %d, channel %d", index, ch)
 					}
 					deviations = append(deviations, deviation)
 				}
 			}
 			slices.Sort(deviations)
-			assert.LessOrEqual(t, deviations[len(deviations)/2], 0.15, "median")
-			assert.LessOrEqual(t, deviations[len(deviations)*9/10], 0.8, "90th percentile")
-			assert.LessOrEqual(t, deviations[len(deviations)*99/100], 3.5, "99th percentile")
+			median, p90, p99 := 0.15, 0.8, 3.5
+			if refdata.FusesMultiplyAdd {
+				median, p90, p99 = 0.1, 0.4, 7
+			}
+			assert.LessOrEqual(t, deviations[len(deviations)/2], median, "median")
+			assert.LessOrEqual(t, deviations[len(deviations)*9/10], p90, "90th percentile")
+			assert.LessOrEqual(t, deviations[len(deviations)*99/100], p99, "99th percentile")
 		})
 	}
 }

@@ -50,3 +50,13 @@ func Load(tb testing.TB, path string) []Entry {
 
 	return entries
 }
+
+// SkipIfFusesMultiplyAdd skips a test that compares a port with upstream
+// bit for bit on the architectures where the Go compiler fuses
+// multiply-adds: the reference output is computed without them.
+func SkipIfFusesMultiplyAdd(tb testing.TB) {
+	tb.Helper()
+	if FusesMultiplyAdd {
+		tb.Skip("the reference output is computed without fused multiply-add")
+	}
+}

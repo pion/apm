@@ -19,6 +19,8 @@ import (
 // forward transform and "inv <frame>" for the output of the inverse
 // transform on it.
 func TestRdft_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	const length = 256
 	reference := map[string][]float32{}
 	for _, entry := range refdata.Load(t, "testdata/fft4g_upstream.txt") {

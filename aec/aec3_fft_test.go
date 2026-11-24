@@ -20,6 +20,8 @@ func assertTransform(t *testing.T, want, got []float32, name string) {
 // noise. Each line
 // of the reference file is keyed by the name of the transform.
 func TestAec3Fft_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	reference := map[string][]float32{}
 	for _, entry := range refdata.Load(t, "testdata/aec3_fft_upstream.txt") {
 		reference[entry.Key] = entry.Samples

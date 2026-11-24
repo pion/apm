@@ -21,6 +21,8 @@ const referenceDelta = 0.05
 // stereo noise with a DC offset. Each line of the reference file is
 // keyed by "rate frame channel".
 func TestFilter_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	reference := map[string][]float32{}
 	for _, entry := range refdata.Load(t, "testdata/upstream.txt") {
 		reference[entry.Key] = entry.Samples

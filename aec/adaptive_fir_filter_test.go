@@ -192,6 +192,8 @@ func (s *filterAndAdaptScenario) step(index int) {
 // RenderSignalAnalyzer at the pinned commit. Each line of the reference
 // file is keyed by "name render_channels delay".
 func TestAdaptiveFirFilter_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	for _, tc := range []struct{ numRenderChannels, delaySamples int }{{1, 150}, {2, 64}} {
 		suffix := fmt.Sprintf(" %d %d", tc.numRenderChannels, tc.delaySamples)
 		t.Run(suffix[1:], func(t *testing.T) {

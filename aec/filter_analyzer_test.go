@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,6 +33,8 @@ func TestFilterAnalyzer_FilterResize(t *testing.T) {
 // of the reference file is keyed by
 // "name render_channels capture_channels delay".
 func TestFilterAnalyzer_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	for _, tc := range []struct{ numRender, numCapture, delaySamples int }{{1, 1, 150}, {2, 2, 64}} {
 		suffix := fmt.Sprintf(" %d %d %d", tc.numRender, tc.numCapture, tc.delaySamples)
 		t.Run(suffix[1:], func(t *testing.T) {

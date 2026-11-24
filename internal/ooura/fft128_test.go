@@ -17,6 +17,8 @@ import (
 // of the reference file is keyed by "fwd <frame>" for the output of Fft
 // and "inv <frame>" for the output of InverseFft on it.
 func TestFft128_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	reference := map[string][]float32{}
 	for _, entry := range refdata.Load(t, "testdata/fft128_upstream.txt") {
 		reference[entry.Key] = entry.Samples

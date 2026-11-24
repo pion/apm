@@ -9,6 +9,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -508,7 +509,7 @@ func TestEchoCanceller3_MatchesUpstream(t *testing.T) {
 					erle = append(erle, math.Abs(gotErle-float64(wantMetrics[2])))
 					stereo := scenario.canceller.multichannelContentDetector.isProperMultiChannelContentDetected()
 					require.Equal(t, wantMetrics[4], boolValue(stereo), "frame %d", index) //nolint:testifylint // Flag.
-					if !fusesMultiplyAdd() {
+					if !refdata.FusesMultiplyAdd {
 						require.Equal(t, int(wantMetrics[3]), delayMs, "frame %d", index)
 					}
 				}

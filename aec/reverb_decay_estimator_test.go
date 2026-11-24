@@ -6,6 +6,7 @@ package aec
 import (
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,6 +27,8 @@ func reverbScenarioRuns() []reverbScenarioRun {
 // TestReverbDecayEstimator_MatchesUpstream compares the decay of every
 // 4th update with the upstream ReverbDecayEstimator at the pinned commit.
 func TestReverbDecayEstimator_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	for _, run := range reverbScenarioRuns() {
 		suffix := reverbScenarioSuffix(run.lengthBlocks, run.defaultLen, run.variant)
 		t.Run(suffix[1:], func(t *testing.T) {

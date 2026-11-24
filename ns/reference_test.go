@@ -69,6 +69,8 @@ func (s *referenceSignal) fill(frame int, bands [][][]float32) {
 // may round differently than Go: with those of glibc, the output matches
 // on every frame, and with those of Go, on the frames of the reference.
 func TestSuppressor_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	type stream struct{ rate, channels, level int }
 	want := map[stream]map[int][]referenceFrame{}
 	for _, ref := range loadReference(t) {

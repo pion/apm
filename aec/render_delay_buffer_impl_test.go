@@ -143,6 +143,8 @@ func (s *renderDelayBufferScenario) step(step int) []float32 {
 // the upstream RenderDelayBuffer at the pinned commit. Each line of the
 // reference file is keyed by "name rate channels [step]".
 func TestRenderDelayBuffer_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	reference := map[string][]float32{}
 	for _, entry := range refdata.Load(t, "testdata/render_delay_buffer_upstream.txt") {
 		reference[entry.Key] = entry.Samples

@@ -9,6 +9,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -147,7 +148,7 @@ func TestBlockProcessor_MatchesUpstream(t *testing.T) {
 					gotErl, gotErle, delayMs := scenario.processor.getMetrics()
 					erl = append(erl, math.Abs(gotErl-float64(wantMetrics[1])))
 					erle = append(erle, math.Abs(gotErle-float64(wantMetrics[2])))
-					if !fusesMultiplyAdd() {
+					if !refdata.FusesMultiplyAdd {
 						require.Equal(t, int(wantMetrics[3]), delayMs, "block %d", index)
 					}
 				}

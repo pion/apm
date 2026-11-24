@@ -7,10 +7,10 @@ package aec
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"slices"
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -256,18 +256,6 @@ func (s *echoRemoverScenario) step(index int) {
 	s.linearEnergy = energy(s.linearOutput.view(0, last))
 }
 
-// fusesMultiplyAdd tells whether the Go compiler fuses a multiplication
-// and an addition into one operation on this architecture, which changes
-// the rounding of the floating-point computations.
-func fusesMultiplyAdd() bool {
-	switch runtime.GOARCH {
-	case "arm64", "ppc64", "ppc64le", "riscv64", "s390x", "loong64":
-		return true
-	default:
-		return false
-	}
-}
-
 // levelDeviations collects the deviations in dB between energies and
 // their reference.
 type levelDeviations []float64
@@ -287,7 +275,7 @@ func (l levelDeviations) assertBelow(t *testing.T, name string, limit, median, p
 	t.Helper()
 	slices.Sort(l)
 	require.NotEmpty(t, l, name)
-	if !fusesMultiplyAdd() {
+	if !refdata.FusesMultiplyAdd {
 		assert.LessOrEqual(t, l[len(l)-1], limit, name)
 
 		return
