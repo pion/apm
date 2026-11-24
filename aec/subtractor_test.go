@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: 2017 The WebRTC project authors
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT AND BSD-3-Clause
 
 package aec
 
@@ -7,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pion/apm/internal/dsp/biquad"
 	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,5 +183,211 @@ func TestSubtractor_MatchesUpstream(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// newSubtractorTestHighPass returns the high-pass filters of
+// RunSubtractorTest, one per channel.
+func newSubtractorTestHighPass(numChannels int) []*biquad.Cascade {
+	// [B,A] = butter(2,100/8000,'high')
+	coefficients := []biquad.Coefficients{{B: [3]float32{0.97261, -1.94523, 0.97261}, A: [2]float32{-1.94448, 0.94598}}}
+	filters := make([]*biquad.Cascade, numChannels)
+	for ch := range filters {
+		filters[ch] = biquad.NewCascade(coefficients)
+	}
+
+	return filters
+}
+
+func newTestDelayBuffers(numChannels, delaySamples int) []*testDelayBuffer {
+	buffers := make([]*testDelayBuffer, numChannels)
+	for ch := range buffers {
+		buffers[ch] = newTestDelayBuffer(delaySamples)
+	}
+
+	return buffers
+}
+
+// addSubtractorTestEcho adds the delayed render, downmixed, to every
+// capture channel. Like upstream, the echo is added to the previous
+// capture block, so the capture grows far beyond the range the refined
+// error is clamped to, and the correlated tests pass even with a filter
+// that does not adapt.
+func addSubtractorTestEcho(render, capture *block, delayBuffers [][]*testDelayBuffer) {
+	var channelCapture [kBlockSize]float32
+	for captureCh, buffers := range delayBuffers {
+		view := capture.view(0, captureCh)
+		for renderCh, buffer := range buffers {
+			buffer.delay(render.view(0, renderCh), channelCapture[:])
+			for k := range view {
+				view[k] += channelCapture[k] / float32(len(buffers))
+			}
+		}
+	}
+}
+
+// runSubtractorTest mirrors RunSubtractorTest in subtractor_unittest.cc,
+// without the echo path changes that no test uses. It returns the ratio
+// of the refined filter error power to the capture power for each
+// capture channel.
+func runSubtractorTest(
+	t *testing.T,
+	numRenderChannels, numCaptureChannels, numBlocksToProcess, delaySamples int,
+	refinedFilterLengthBlocks, coarseFilterLengthBlocks int,
+	uncorrelatedInputs bool,
+) []float32 {
+	t.Helper()
+	const sampleRateHz = 48000
+	config := defaultEchoCanceller3Config()
+	config.filter.refined.lengthBlocks = refinedFilterLengthBlocks
+	config.filter.coarse.lengthBlocks = coarseFilterLengthBlocks
+
+	sub := newSubtractor(config, numRenderChannels, numCaptureChannels)
+	render := newBlock(numBandsForRate(sampleRateHz), numRenderChannels)
+	capture := newBlock(1, numCaptureChannels)
+	output := make([]subtractorOutput, numCaptureChannels)
+	config.delay.defaultDelay = 1
+	renderDelayBuffer := newRenderDelayBufferImpl(config, sampleRateHz, numRenderChannels)
+	analyzer := newRenderSignalAnalyzer(config)
+	random := newTestRandom(42)
+	y2 := make([][kFftLengthBy2Plus1]float32, numCaptureChannels)
+	e2Refined := make([][kFftLengthBy2Plus1]float32, numCaptureChannels)
+	state := newAecState(config, numCaptureChannels)
+
+	delayBuffers := make([][]*testDelayBuffer, numCaptureChannels)
+	for captureCh := range delayBuffers {
+		delayBuffers[captureCh] = newTestDelayBuffers(numRenderChannels, delaySamples)
+	}
+
+	renderHighPass := newSubtractorTestHighPass(numRenderChannels)
+	captureHighPass := newSubtractorTestHighPass(numCaptureChannels)
+
+	for blockNum := range numBlocksToProcess {
+		for ch := range numRenderChannels {
+			randomizeSampleVector(random, render.view(0, ch))
+		}
+		if uncorrelatedInputs {
+			for ch := range numCaptureChannels {
+				randomizeSampleVector(random, capture.view(0, ch))
+			}
+		} else {
+			addSubtractorTestEcho(render, capture, delayBuffers)
+		}
+		for ch, filter := range renderHighPass {
+			filter.Process(render.view(0, ch))
+		}
+		for ch, filter := range captureHighPass {
+			filter.Process(capture.view(0, ch))
+		}
+
+		renderDelayBuffer.insert(render)
+		if blockNum == 0 {
+			renderDelayBuffer.reset()
+		}
+		renderDelayBuffer.prepareCaptureProcessing()
+		renderBuffer := renderDelayBuffer.getRenderBuffer()
+		analyzer.update(renderBuffer, state.minDirectPathFilterDelay(), true)
+
+		sub.process(renderBuffer, capture, analyzer, state.saturatedCapture(), output)
+
+		state.handleEchoPathChange(echoPathVariability{})
+		state.update(delayEstimate{}, false, sub.filterFrequencyResponses(), sub.filterImpulseResponses(),
+			renderBuffer, e2Refined, y2, output)
+	}
+
+	results := make([]float32, numCaptureChannels)
+	for ch := range results {
+		capturePower := energy(capture.view(0, ch))
+		assert.NotZero(t, capturePower)
+		results[ch] = energy(output[ch].eRefined[:]) / capturePower
+	}
+
+	return results
+}
+
+// Port of Convergence.
+func TestSubtractor_Convergence(t *testing.T) {
+	for _, filterLengthBlocks := range []int{12, 20, 30} {
+		for _, delaySamples := range []int{0, 64, 150, 200, 301} {
+			t.Run(fmt.Sprintf("length %d delay %d", filterLengthBlocks, delaySamples), func(t *testing.T) {
+				t.Parallel()
+				for _, power := range runSubtractorTest(t, 1, 1, 2500, delaySamples,
+					filterLengthBlocks, filterLengthBlocks, false) {
+					assert.Less(t, power, float32(0.1))
+				}
+			})
+		}
+	}
+}
+
+// Port of RefinedFilterLongerThanCoarseFilter.
+func TestSubtractor_RefinedFilterLongerThanCoarseFilter(t *testing.T) {
+	for _, power := range runSubtractorTest(t, 1, 1, 400, 64, 20, 15, false) {
+		assert.Less(t, power, float32(0.5))
+	}
+}
+
+// Port of CoarseFilterLongerThanRefinedFilter.
+func TestSubtractor_CoarseFilterLongerThanRefinedFilter(t *testing.T) {
+	for _, power := range runSubtractorTest(t, 1, 1, 400, 64, 15, 20, false) {
+		assert.Less(t, power, float32(0.5))
+	}
+}
+
+// Port of NonConvergenceOnUncorrelatedSignals.
+func TestSubtractor_NonConvergenceOnUncorrelatedSignals(t *testing.T) {
+	for _, filterLengthBlocks := range []int{12, 20, 30} {
+		for _, delaySamples := range []int{0, 64, 150, 200, 301} {
+			t.Run(fmt.Sprintf("length %d delay %d", filterLengthBlocks, delaySamples), func(t *testing.T) {
+				t.Parallel()
+				for _, power := range runSubtractorTest(t, 1, 1, 3000, delaySamples,
+					filterLengthBlocks, filterLengthBlocks, true) {
+					assert.InDelta(t, 1, power, 0.1)
+				}
+			})
+		}
+	}
+}
+
+// subtractorChannelCounts mirrors the NonDebugMultiChannel and, in race
+// builds, the DebugMultiChannel instantiations.
+func subtractorChannelCounts(render, capture []int) (renderCounts, captureCounts []int) {
+	if raceEnabled {
+		return []int{1, 2}, []int{1, 2}
+	}
+
+	return render, capture
+}
+
+// Port of SubtractorMultiChannelUpToEightRender.Convergence.
+func TestSubtractor_MultiChannelConvergence(t *testing.T) {
+	renderCounts, captureCounts := subtractorChannelCounts([]int{1, 2, 8}, []int{1, 2, 4})
+	for _, numRenderChannels := range renderCounts {
+		for _, numCaptureChannels := range captureCounts {
+			t.Run(fmt.Sprintf("render %d capture %d", numRenderChannels, numCaptureChannels), func(t *testing.T) {
+				t.Parallel()
+				for _, power := range runSubtractorTest(t, numRenderChannels, numCaptureChannels,
+					2500*numRenderChannels, 64, 20, 20, false) {
+					assert.Less(t, power, float32(0.1))
+				}
+			})
+		}
+	}
+}
+
+// Port of SubtractorMultiChannelUpToFourRender.NonConvergenceOnUncorrelatedSignals.
+func TestSubtractor_MultiChannelNonConvergenceOnUncorrelatedSignals(t *testing.T) {
+	renderCounts, captureCounts := subtractorChannelCounts([]int{1, 2, 4}, []int{1, 2, 4})
+	for _, numRenderChannels := range renderCounts {
+		for _, numCaptureChannels := range captureCounts {
+			t.Run(fmt.Sprintf("render %d capture %d", numRenderChannels, numCaptureChannels), func(t *testing.T) {
+				t.Parallel()
+				for _, power := range runSubtractorTest(t, numRenderChannels, numCaptureChannels,
+					5000*numRenderChannels, 64, 20, 20, true) {
+					assert.Greater(t, power, float32(0.8))
+					assert.InDelta(t, 1, power, 0.25)
+				}
+			})
+		}
 	}
 }
