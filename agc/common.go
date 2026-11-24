@@ -4,16 +4,18 @@
 
 package agc
 
+// Like upstream, the float constants are float32: their arithmetic rounds
+// like float operations.
 const (
-	kMinFloatS16Value    = -32768.0
-	kMaxFloatS16Value    = 32767.0
-	kMaxAbsFloatS16Value = 32768.0
+	kMinFloatS16Value    float32 = -32768.0
+	kMaxFloatS16Value    float32 = 32767.0
+	kMaxAbsFloatS16Value float32 = 32768.0
 
-	kFrameDurationMs         = 10
-	kSubFramesInFrame        = 20
-	kMaxSamplesPerChannel    = 480
-	kInputLevelScalingFactor = 32768.0
-	kMaxInputLevelLinear     = 36766.300710566735
+	kFrameDurationMs                 = 10
+	kSubFramesInFrame                = 20
+	kMaxSamplesPerChannel            = 480
+	kInputLevelScalingFactor float32 = 32768.0
+	kMaxInputLevelLinear     float32 = 36766.300710566735
 
 	kInterpolatedGainCurveKneePoints       = 22
 	kInterpolatedGainCurveBeyondKneePoints = 10

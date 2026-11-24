@@ -14,8 +14,8 @@ type fixedDigitalLevelEstimator struct {
 }
 
 const (
-	attackFilterConstant = 0.0
-	decayFilterConstant  = 0.9971259
+	attackFilterConstant float32 = 0.0
+	decayFilterConstant  float32 = 0.9971259
 )
 
 func newLevelEstimator(samplesPerChannel int) *fixedDigitalLevelEstimator {

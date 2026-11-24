@@ -12,8 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// referenceDelta bounds the difference to upstream on the int16 scale.
-const referenceDelta = 0.05
+// referenceDelta returns the bound of the difference to upstream on the
+// int16 scale: none, except on the architectures where Go fuses
+// multiply-add, which round differently than the reference.
+func referenceDelta() float64 {
+	if refdata.FusesMultiplyAdd {
+		return 0.05
+	}
+
+	return 0
+}
 
 // referenceStream identifies one upstream run of testdata/upstream.txt.
 type referenceStream struct {
@@ -79,7 +87,7 @@ func TestController_MatchesUpstream(t *testing.T) {
 				fillReferenceSignal(&seed, frame, audio)
 				require.NoError(t, controller.Process(audio))
 				for channel, samples := range frames[frame] {
-					assert.InDeltaSlice(t, samples, audio[channel], referenceDelta, "frame %d, channel %d", frame, channel)
+					assert.InDeltaSlice(t, samples, audio[channel], referenceDelta(), "frame %d, channel %d", frame, channel)
 				}
 			}
 		})
@@ -122,7 +130,7 @@ func TestController_SetFixedGainDBMatchesUpstream(t *testing.T) {
 					audio[0][i] = float32(int(seed>>16)%20001 - 10000)
 				}
 				require.NoError(t, controller.Process(audio))
-				require.InDeltaSlice(t, want, audio[0], referenceDelta, "frame %d", frame)
+				require.InDeltaSlice(t, want, audio[0], referenceDelta(), "frame %d", frame)
 			}
 		})
 	}

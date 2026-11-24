@@ -4,8 +4,6 @@
 
 package agc
 
-import "math"
-
 // limiter mirrors Agc2's Limiter: envelope estimator + interpolated gain
 // curve + per-sample interpolation + final clip.
 type limiter struct {
@@ -15,7 +13,7 @@ type limiter struct {
 	lastScalingFactor float32
 }
 
-const attackFirstSubframeInterpolationPower = 8.0
+const attackFirstSubframeInterpolationPower float32 = 8
 
 func newLimiter(samplesPerChannel int) *limiter {
 	return &limiter{
@@ -48,8 +46,8 @@ func (l *limiter) process(channels [][]float32) {
 		last := l.scalingFactors[0]
 		cur := l.scalingFactors[1]
 		for i := range subframeSize {
-			t := float64(i) / float64(subframeSize)
-			perSample[i] = float32(math.Pow(1.0-t, attackFirstSubframeInterpolationPower))*(last-cur) + cur
+			t := float32(i) / float32(subframeSize)
+			perSample[i] = powf(1-t, attackFirstSubframeInterpolationPower)*(last-cur) + cur
 		}
 	}
 

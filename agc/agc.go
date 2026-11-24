@@ -97,6 +97,13 @@ func (c *Controller) Process(channels [][]float32) error {
 // Reset clears the limiter state.
 func (c *Controller) Reset() { c.limiter.reset() }
 
+// dbToRatio matches DbToRatio: std::pow(10.0f, v / 20.0f).
 func dbToRatio(db float32) float32 {
-	return float32(math.Pow(10, float64(db)/20))
+	return powf(10, db/20)
+}
+
+// powf stands for the float std::pow of upstream: the power computed in
+// double precision, rounded to float.
+func powf(x, y float32) float32 {
+	return float32(math.Pow(float64(x), float64(y)))
 }
