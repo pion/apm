@@ -91,14 +91,22 @@ const (
 )
 
 // runWithConstantInput matches RunAgc2WithConstantInput of
-// gain_controller2_unittest.cc: it processes fixedDigitalNumFrames+1
-// frames of a constant mono signal and returns the last output sample.
+// gain_controller2_unittest.cc for the GainController2FixedDigital tests.
 func runWithConstantInput(t *testing.T, c *Controller) float32 {
 	t.Helper()
-	frame := [][]float32{make([]float32, fixedDigitalSampleRate/100)}
-	for range fixedDigitalNumFrames + 1 {
+
+	return runWithConstantInputLevel(t, c, fixedDigitalInputLevel, fixedDigitalNumFrames, fixedDigitalSampleRate)
+}
+
+// runWithConstantInputLevel matches RunAgc2WithConstantInput: it processes
+// numFrames+1 frames of a constant mono signal and returns the last output
+// sample.
+func runWithConstantInputLevel(t *testing.T, c *Controller, inputLevel float32, numFrames, sampleRateHz int) float32 {
+	t.Helper()
+	frame := [][]float32{make([]float32, sampleRateHz/100)}
+	for range numFrames + 1 {
 		for i := range frame[0] {
-			frame[0][i] = fixedDigitalInputLevel
+			frame[0][i] = inputLevel
 		}
 		require.NoError(t, c.Process(frame))
 	}
@@ -140,4 +148,40 @@ func TestController_ChangeFixedGainShouldBeFastAndTimeInvariant(t *testing.T) {
 	outputLevelPost := runWithConstantInput(t, c)
 
 	assert.Equal(t, outputLevelPre, outputLevelPost)
+}
+
+// Port of FixedDigitalTest.CheckSaturationBehaviorWithLimiter: below the
+// maximum input level of the limiter, the gain does not saturate a full
+// scale signal, above it does, at any sample rate.
+func TestController_CheckSaturationBehaviorWithLimiter(t *testing.T) {
+	for _, tc := range []struct {
+		gainDBMin, gainDBMax float32
+		sampleRateHz         int
+		saturationExpected   bool
+	}{
+		{0.1, testLimiterMaxInputLevelDBFS - 0.01, 8000, false},
+		{0.1, testLimiterMaxInputLevelDBFS - 0.01, 48000, false},
+		{testLimiterMaxInputLevelDBFS + 0.01, 10, 8000, true},
+		{testLimiterMaxInputLevelDBFS + 0.01, 10, 48000, true},
+	} {
+		for _, gainDB := range linSpace(float64(tc.gainDBMin), float64(tc.gainDBMax), 10) {
+			c, err := New(Config{FixedDigitalGainDB: float32(gainDB)}, tc.sampleRateHz, 1)
+			require.NoError(t, err)
+			processedSample := runWithConstantInputLevel(t, c, 32767, 5, tc.sampleRateHz)
+			if tc.saturationExpected {
+				// Like EXPECT_FLOAT_EQ, within 4 ULPs.
+				assert.InDelta(t, float32(32767), processedSample, 4*0.001953125, "gain %v dB, %d Hz", gainDB,
+					tc.sampleRateHz)
+			} else {
+				assert.Less(t, processedSample, float32(32767), "gain %v dB, %d Hz", gainDB, tc.sampleRateHz)
+			}
+		}
+	}
+}
+
+// Port of GainController2.ApplyDefaultConfig.
+func TestController_ApplyDefaultConfig(t *testing.T) {
+	c, err := New(Config{}, 16000, 2)
+	require.NoError(t, err)
+	assert.NotNil(t, c)
 }
