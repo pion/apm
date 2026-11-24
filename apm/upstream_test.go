@@ -167,8 +167,6 @@ type upstreamCase struct {
 	rate, maxRate         SampleRate
 	numRender, numCapture int
 	ns, agc               bool
-	// exactFrames is the number of frames compared frame by frame.
-	exactFrames int
 }
 
 // key returns the key of the scenario in the reference file.
@@ -185,62 +183,49 @@ func (c upstreamCase) key() string {
 }
 
 // TestProcessor_MatchesUpstream compares the energy of every output
-// frame, in dB, with the upstream AudioProcessing at the pinned commit,
-// for a stream with the echo canceller, at 16, 32 and 48 kHz, in mono and
-// in stereo. The "ns" scenarios also enable the noise suppressor, and the
+// frame with the upstream AudioProcessing at the pinned commit, for a
+// stream with the echo canceller, at 16, 32 and 48 kHz, in mono and in
+// stereo. The "ns" scenarios also enable the noise suppressor, and the
 // "agc" scenarios the gain controller with a fixed gain of 30 dB. The
 // upstream stream formats are set before the first frame, and its other
 // settings are the defaults.
 //
-// The output of the echo canceller depends on the rounding of the
-// floating-point computations, which feeds back through the adaptation
-// of its filters. Upstream itself, with one capture sample of the second
-// frame moved to the next float, or built with fused multiply-add, gives
-// energies that differ from frame 47 on in some of the scenarios: by up
-// to 0.05 dB for the median frame, 0.3 dB for 90% of the frames and
-// 1.7 dB for 99% of them. The first 46 frames, which hold the start of the
-// echo and a saturation of the capture signal, are therefore compared
-// frame by frame, and the whole run is compared in distribution. The
-// mono 16 kHz scenario, that the moved sample leaves unchanged upstream,
-// is compared frame by frame over the whole run.
+// The output matches upstream bit for bit: the energies of every frame
+// are compared exactly. Any difference of rounding would feed back
+// through the adaptation of the echo canceller and grow over the run.
 //
-// On the architectures where Go fuses multiply-add, no frame is compared
-// one by one. Built with fused multiply-add, upstream differs from the
-// reference by up to 0.08 dB for the median frame, 0.25 dB for 90% of
-// the frames, and 6.65 dB on single frames, depending on which
-// operations the compiler fuses. The distribution is compared with
-// bounds above these.
+// On the architectures where Go fuses multiply-add, the rounding differs
+// from the reference, which is computed without it. Built with fused
+// multiply-add, upstream differs from the reference by up to 0.08 dB for
+// the median frame, 0.25 dB for 90% of the frames, and 6.65 dB on single
+// frames, depending on which operations the compiler fuses. There, the
+// distribution of the deviations is compared with bounds above these.
 //
 // Each line of the reference file is keyed by "sample_rate
 // render_channels capture_channels max_processing_rate", plus "ns" and
-// "agc", and
-// holds the frame index, the energy of the first capture channel and the
-// energy of every output channel.
+// "agc", and holds the frame index, the energy of the first capture
+// channel and the energy of every output channel.
 func TestProcessor_MatchesUpstream(t *testing.T) {
-	const (
-		startFrames = 46
-		silence     = 1e-12
-	)
 	reference := map[string][][]float32{}
 	for _, entry := range refdata.Load(t, "testdata/upstream.txt") {
 		reference[entry.Key] = append(reference[entry.Key], entry.Samples)
 	}
 
 	for _, tc := range []upstreamCase{
-		{Rate16k, Rate32k, 1, 1, false, false, upstreamScenarioFrames},
-		{Rate16k, Rate32k, 2, 2, false, false, startFrames},
-		{Rate32k, Rate32k, 1, 1, false, false, startFrames},
-		{Rate32k, Rate32k, 2, 2, false, false, startFrames},
-		{Rate48k, Rate48k, 1, 1, false, false, startFrames},
-		{Rate48k, Rate48k, 2, 2, false, false, startFrames},
-		{Rate48k, Rate32k, 2, 1, false, false, startFrames},
-		{Rate48k, Rate32k, 1, 1, false, false, startFrames},
-		{Rate16k, Rate32k, 1, 2, true, false, startFrames},
-		{Rate48k, Rate48k, 1, 1, true, false, startFrames},
-		{Rate16k, Rate32k, 1, 1, false, true, startFrames},
-		{Rate48k, Rate48k, 1, 1, false, true, startFrames},
-		{Rate48k, Rate32k, 1, 1, false, true, startFrames},
-		{Rate48k, Rate32k, 2, 2, true, true, startFrames},
+		{Rate16k, Rate32k, 1, 1, false, false},
+		{Rate16k, Rate32k, 2, 2, false, false},
+		{Rate32k, Rate32k, 1, 1, false, false},
+		{Rate32k, Rate32k, 2, 2, false, false},
+		{Rate48k, Rate48k, 1, 1, false, false},
+		{Rate48k, Rate48k, 2, 2, false, false},
+		{Rate48k, Rate32k, 2, 1, false, false},
+		{Rate48k, Rate32k, 1, 1, false, false},
+		{Rate16k, Rate32k, 1, 2, true, false},
+		{Rate48k, Rate48k, 1, 1, true, false},
+		{Rate16k, Rate32k, 1, 1, false, true},
+		{Rate48k, Rate48k, 1, 1, false, true},
+		{Rate48k, Rate32k, 1, 1, false, true},
+		{Rate48k, Rate32k, 2, 2, true, true},
 	} {
 		t.Run(tc.key(), func(t *testing.T) {
 			frames := reference[tc.key()]
@@ -257,27 +242,43 @@ func TestProcessor_MatchesUpstream(t *testing.T) {
 			for index, want := range frames {
 				scenario.step(t, index)
 				require.Equal(t, float32(index), want[0])
-				require.InEpsilon(t, want[1], scenario.inputEnergy, 1e-5, "frame %d", index)
-				for ch, energy := range scenario.outputEnergies {
-					// The first frame of the noise suppressor is silent.
-					if energy < silence && want[2+ch] < silence {
-						continue
-					}
-					deviation := math.Abs(10 * math.Log10(float64(energy)/float64(want[2+ch])))
-					if index < tc.exactFrames && !refdata.FusesMultiplyAdd {
-						require.LessOrEqual(t, deviation, 0.01, "frame %d, channel %d", index, ch)
-					}
-					deviations = append(deviations, deviation)
+				if !refdata.FusesMultiplyAdd {
+					got := append([]float32{scenario.inputEnergy}, scenario.outputEnergies...)
+					require.Equal(t, want[1:], got, "frame %d", index)
+
+					continue
 				}
+				require.InEpsilon(t, want[1], scenario.inputEnergy, 1e-5, "frame %d", index)
+				deviations = appendDeviations(deviations, want[2:], scenario.outputEnergies)
 			}
-			slices.Sort(deviations)
-			median, p90, p99 := 0.15, 0.8, 3.5
 			if refdata.FusesMultiplyAdd {
-				median, p90, p99 = 0.1, 0.4, 7
+				assertFusedDeviations(t, deviations)
 			}
-			assert.LessOrEqual(t, deviations[len(deviations)/2], median, "median")
-			assert.LessOrEqual(t, deviations[len(deviations)*9/10], p90, "90th percentile")
-			assert.LessOrEqual(t, deviations[len(deviations)*99/100], p99, "99th percentile")
 		})
 	}
+}
+
+// appendDeviations appends the deviations in dB of the output energies
+// from their reference.
+func appendDeviations(deviations []float64, want, got []float32) []float64 {
+	const silence = 1e-12
+	for ch, energy := range got {
+		// The first frame of the noise suppressor is silent.
+		if energy < silence && want[ch] < silence {
+			continue
+		}
+		deviations = append(deviations, math.Abs(10*math.Log10(float64(energy)/float64(want[ch]))))
+	}
+
+	return deviations
+}
+
+// assertFusedDeviations checks the distribution of the deviations on the
+// architectures where Go fuses multiply-add.
+func assertFusedDeviations(t *testing.T, deviations []float64) {
+	t.Helper()
+	slices.Sort(deviations)
+	assert.LessOrEqual(t, deviations[len(deviations)/2], 0.1, "median")
+	assert.LessOrEqual(t, deviations[len(deviations)*9/10], 0.4, "90th percentile")
+	assert.LessOrEqual(t, deviations[len(deviations)*99/100], 7.0, "99th percentile")
 }
