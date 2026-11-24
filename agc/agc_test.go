@@ -81,3 +81,63 @@ func TestController_ZeroAllocSteadyState(t *testing.T) {
 	})
 	assert.Zero(t, allocs)
 }
+
+// The input level, the number of frames and the sample rate of the
+// GainController2FixedDigital tests of gain_controller2_unittest.cc.
+const (
+	fixedDigitalInputLevel = 1000
+	fixedDigitalNumFrames  = 5
+	fixedDigitalSampleRate = 8000
+)
+
+// runWithConstantInput matches RunAgc2WithConstantInput of
+// gain_controller2_unittest.cc: it processes fixedDigitalNumFrames+1
+// frames of a constant mono signal and returns the last output sample.
+func runWithConstantInput(t *testing.T, c *Controller) float32 {
+	t.Helper()
+	frame := [][]float32{make([]float32, fixedDigitalSampleRate/100)}
+	for range fixedDigitalNumFrames + 1 {
+		for i := range frame[0] {
+			frame[0][i] = fixedDigitalInputLevel
+		}
+		require.NoError(t, c.Process(frame))
+	}
+
+	return frame[0][len(frame[0])-1]
+}
+
+// Ports GainController2FixedDigital.GainShouldChangeOnSetGain.
+func TestController_GainShouldChangeOnSetGain(t *testing.T) {
+	c, err := New(Config{FixedDigitalGainDB: 0}, fixedDigitalSampleRate, 1)
+	require.NoError(t, err)
+
+	// Signal level is unchanged with 0 db gain.
+	assert.InEpsilon(t, fixedDigitalInputLevel, runWithConstantInput(t, c), 1e-6)
+
+	// +20 db should increase signal by a factor of 10.
+	c.SetFixedGainDB(20)
+	assert.InEpsilon(t, fixedDigitalInputLevel*10, runWithConstantInput(t, c), 1e-6)
+}
+
+// Ports GainController2FixedDigital.ChangeFixedGainShouldBeFastAndTimeInvariant.
+func TestController_ChangeFixedGainShouldBeFastAndTimeInvariant(t *testing.T) {
+	const (
+		gainDBLow  = 0
+		gainDBHigh = 25
+	)
+	c, err := New(Config{FixedDigitalGainDB: gainDBLow}, fixedDigitalSampleRate, 1)
+	require.NoError(t, err)
+
+	// Start with a lower gain.
+	outputLevelPre := runWithConstantInput(t, c)
+
+	// Increase gain.
+	c.SetFixedGainDB(gainDBHigh)
+	runWithConstantInput(t, c)
+
+	// Back to the lower gain.
+	c.SetFixedGainDB(gainDBLow)
+	outputLevelPost := runWithConstantInput(t, c)
+
+	assert.Equal(t, outputLevelPre, outputLevelPost)
+}

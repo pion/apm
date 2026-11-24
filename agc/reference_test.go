@@ -85,3 +85,45 @@ func TestController_MatchesUpstream(t *testing.T) {
 		})
 	}
 }
+
+// TestController_SetFixedGainDBMatchesUpstream compares the output with
+// the output of the upstream GainController2 at the pinned commit, with a
+// fixed digital gain of 20 dB on mono noise of amplitude 10000, which
+// drives the limiter. The gain is set to 0 dB before frame 10 and to 6 dB
+// before frame 20. Each line of the reference file is keyed by "rate
+// frame".
+func TestController_SetFixedGainDBMatchesUpstream(t *testing.T) {
+	reference := map[int][][]float32{}
+	for _, entry := range refdata.Load(t, "testdata/gain_change_upstream.txt") {
+		var rate, frame int
+		_, err := fmt.Sscan(entry.Key, &rate, &frame)
+		require.NoError(t, err)
+		require.Len(t, reference[rate], frame)
+		reference[rate] = append(reference[rate], entry.Samples)
+	}
+	require.Len(t, reference, 3)
+
+	for rate, frames := range reference {
+		t.Run(fmt.Sprintf("%dHz", rate), func(t *testing.T) {
+			controller, err := New(Config{FixedDigitalGainDB: 20}, rate, 1)
+			require.NoError(t, err)
+
+			audio := [][]float32{make([]float32, rate/100)}
+			seed := uint32(1)
+			for frame, want := range frames {
+				switch frame {
+				case 10:
+					controller.SetFixedGainDB(0)
+				case 20:
+					controller.SetFixedGainDB(6)
+				}
+				for i := range audio[0] {
+					seed = seed*1664525 + 1013904223
+					audio[0][i] = float32(int(seed>>16)%20001 - 10000)
+				}
+				require.NoError(t, controller.Process(audio))
+				require.InDeltaSlice(t, want, audio[0], referenceDelta, "frame %d", frame)
+			}
+		})
+	}
+}

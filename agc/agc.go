@@ -67,9 +67,15 @@ func New(cfg Config, sampleRateHz, numChannels int) (*Controller, error) {
 }
 
 // SetFixedGainDB changes the fixed digital gain in dB. The next frame
-// applies a smooth ramp from the previous gain.
+// applies a smooth ramp from the previous gain. Like upstream, a change of
+// gain resets the limiter, so that it reacts quickly to the change of
+// level.
 func (c *Controller) SetFixedGainDB(db float32) {
-	c.gain.setGainFactor(dbToRatio(db))
+	gainFactor := dbToRatio(db)
+	if c.gain.currentGainFactor != gainFactor {
+		c.limiter.reset()
+	}
+	c.gain.setGainFactor(gainFactor)
 }
 
 // Process applies fixed gain + limiter to one 10 ms frame in place.

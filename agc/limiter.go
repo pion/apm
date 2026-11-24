@@ -24,9 +24,9 @@ func newLimiter(samplesPerChannel int) *limiter {
 	}
 }
 
+// reset matches Limiter::Reset: it resets the level estimator only.
 func (l *limiter) reset() {
 	l.level.reset()
-	l.lastScalingFactor = 1
 }
 
 // process applies the limiter to channels in place.
