@@ -67,6 +67,10 @@ type Processor struct {
 	captureBuffer       [][]float32
 	captureResampler    *rateConverter
 	captureOutResampler *rateConverter
+	// fullband is set for a 48 kHz stream processed at a lower rate. Like
+	// upstream's capture_fullband_audio, the processed signal is then
+	// resampled to 48 kHz before the full-band modules run on it.
+	fullband bool
 
 	// Render stream at the processing rate, for the echo canceller. The
 	// resampler is non-nil when the reverse rate differs.
@@ -185,6 +189,7 @@ func (p *Processor) initCapture(bandModules bool) error {
 		return err
 	}
 	p.captureOutResampler, err = newRateConverter(p.procRate, cfg.SampleRate, cfg.NumChannels)
+	p.fullband = cfg.SampleRate == Rate48k && p.procRate < Rate48k
 
 	return err
 }
@@ -273,7 +278,7 @@ func (p *Processor) initModules() error {
 	if cfg.AGC.Enabled {
 		// Upstream runs GainController2 on the full band, after the bands
 		// are merged.
-		c, err := agc.New(agc.Config{FixedDigitalGainDB: cfg.AGC.FixedDigital.GainDB}, int(p.procRate), cfg.NumChannels)
+		c, err := agc.New(agc.Config{FixedDigitalGainDB: cfg.AGC.FixedDigital.GainDB}, p.fullbandRate(), cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: agc: %w", err)
 		}
@@ -301,7 +306,7 @@ func (p *Processor) initHPF() error {
 		return nil
 	}
 	// Upstream filters the full band by default, before the split.
-	f, err := hpf.New(p.hpfRate(), cfg.NumChannels)
+	f, err := hpf.New(p.fullbandRate(), cfg.NumChannels)
 	if err != nil {
 		return fmt.Errorf("apm: hpf: %w", err)
 	}
@@ -310,11 +315,11 @@ func (p *Processor) initHPF() error {
 	return nil
 }
 
-// hpfRate returns the rate that selects the coefficients of the high-pass
-// filter. Like upstream, which takes proc_fullband_sample_rate_hz, it is
-// 48 kHz for a 48 kHz stream even when the stream is processed, and
-// filtered, at a lower rate.
-func (p *Processor) hpfRate() int {
+// fullbandRate matches proc_fullband_sample_rate_hz: it is 48 kHz for a
+// 48 kHz stream even when the stream is processed at a lower rate. It
+// selects the coefficients of the high-pass filter, which filters the
+// signal at the processing rate, and the rate of the gain controller.
+func (p *Processor) fullbandRate() int {
 	if p.cfg.SampleRate == Rate48k {
 		return int(Rate48k)
 	}
@@ -341,31 +346,49 @@ func (p *Processor) ProcessStream(near *Frame) error {
 
 		return nil
 	}
+	err := p.processStream(near.Data)
+	p.streamDelaySet = false
 
+	return err
+}
+
+// processStream runs the modules on the channels of a near-end frame.
+func (p *Processor) processStream(channels [][]float32) error {
 	// Like upstream, resample before scaling up and after scaling down.
-	data := near.Data
+	data := channels
 	if p.captureResampler != nil {
-		if err := p.captureResampler.convert(near.Data, p.captureBuffer); err != nil {
+		if err := p.captureResampler.convert(channels, p.captureBuffer); err != nil {
 			return err
 		}
 		data = p.captureBuffer
 	}
 	scaleUp(data)
-	err := p.processCapture(data)
+	if err := p.processCapture(data); err != nil {
+		scaleDown(data)
+
+		return err
+	}
+	if p.fullband {
+		// Like upstream, the signal is resampled on the int16 scale.
+		if err := p.captureOutResampler.convert(data, channels); err != nil {
+			return err
+		}
+		data = channels
+	}
+	err := p.processFullband(data)
 	scaleDown(data)
-	p.streamDelaySet = false
 	if err != nil {
 		return err
 	}
-	if p.captureOutResampler != nil {
-		return p.captureOutResampler.convert(p.captureBuffer, near.Data)
+	if p.fullband || p.captureOutResampler == nil {
+		return nil
 	}
 
-	return nil
+	return p.captureOutResampler.convert(data, channels)
 }
 
 // processCapture runs the modules on a capture frame at the processing
-// rate and on the int16 scale.
+// rate and on the int16 scale, up to the merge of the bands.
 func (p *Processor) processCapture(data [][]float32) error {
 	if p.hpf != nil {
 		if err := p.hpf.Process(data); err != nil {
@@ -375,9 +398,14 @@ func (p *Processor) processCapture(data [][]float32) error {
 	if err := p.analyzeCapture(data); err != nil {
 		return err
 	}
-	if err := p.processBands(data); err != nil {
-		return err
-	}
+
+	return p.processBands(data)
+}
+
+// processFullband runs the modules that follow the merge of the bands, on
+// the int16 scale: at 48 kHz for a 48 kHz stream, at the processing rate
+// otherwise.
+func (p *Processor) processFullband(data [][]float32) error {
 	if p.agc != nil {
 		if err := p.agc.Process(data); err != nil {
 			return err

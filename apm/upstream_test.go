@@ -175,10 +175,33 @@ func fusesMultiplyAdd() bool {
 	}
 }
 
+// upstreamCase is a scenario of TestProcessor_MatchesUpstream.
+type upstreamCase struct {
+	rate, maxRate         SampleRate
+	numRender, numCapture int
+	ns, agc               bool
+	// exactFrames is the number of frames compared frame by frame.
+	exactFrames int
+}
+
+// key returns the key of the scenario in the reference file.
+func (c upstreamCase) key() string {
+	key := fmt.Sprintf("%d %d %d %d", c.rate, c.numRender, c.numCapture, c.maxRate)
+	if c.ns {
+		key += " ns"
+	}
+	if c.agc {
+		key += " agc"
+	}
+
+	return key
+}
+
 // TestProcessor_MatchesUpstream compares the energy of every output
 // frame, in dB, with the upstream AudioProcessing at the pinned commit,
 // for a stream with the echo canceller, at 16, 32 and 48 kHz, in mono and
-// in stereo. The "ns" scenarios also enable the noise suppressor. The
+// in stereo. The "ns" scenarios also enable the noise suppressor, and the
+// "agc" scenarios the gain controller with a fixed gain of 30 dB. The
 // upstream stream formats are set before the first frame, and its other
 // settings are the defaults.
 //
@@ -196,7 +219,8 @@ func fusesMultiplyAdd() bool {
 // one by one on the architectures where Go fuses multiply-add.
 //
 // Each line of the reference file is keyed by "sample_rate
-// render_channels capture_channels max_processing_rate", plus "ns", and
+// render_channels capture_channels max_processing_rate", plus "ns" and
+// "agc", and
 // holds the frame index, the energy of the first capture channel and the
 // energy of every output channel.
 func TestProcessor_MatchesUpstream(t *testing.T) {
@@ -209,36 +233,31 @@ func TestProcessor_MatchesUpstream(t *testing.T) {
 		reference[entry.Key] = append(reference[entry.Key], entry.Samples)
 	}
 
-	for _, tc := range []struct {
-		rate, maxRate         SampleRate
-		numRender, numCapture int
-		ns                    bool
-		// exactFrames is the number of frames compared frame by frame.
-		exactFrames int
-	}{
-		{Rate16k, Rate32k, 1, 1, false, upstreamScenarioFrames},
-		{Rate16k, Rate32k, 2, 2, false, startFrames},
-		{Rate32k, Rate32k, 1, 1, false, startFrames},
-		{Rate32k, Rate32k, 2, 2, false, startFrames},
-		{Rate48k, Rate48k, 1, 1, false, startFrames},
-		{Rate48k, Rate48k, 2, 2, false, startFrames},
-		{Rate48k, Rate32k, 2, 1, false, startFrames},
-		{Rate48k, Rate32k, 1, 1, false, startFrames},
-		{Rate16k, Rate32k, 1, 2, true, startFrames},
-		{Rate48k, Rate48k, 1, 1, true, startFrames},
+	for _, tc := range []upstreamCase{
+		{Rate16k, Rate32k, 1, 1, false, false, upstreamScenarioFrames},
+		{Rate16k, Rate32k, 2, 2, false, false, startFrames},
+		{Rate32k, Rate32k, 1, 1, false, false, startFrames},
+		{Rate32k, Rate32k, 2, 2, false, false, startFrames},
+		{Rate48k, Rate48k, 1, 1, false, false, startFrames},
+		{Rate48k, Rate48k, 2, 2, false, false, startFrames},
+		{Rate48k, Rate32k, 2, 1, false, false, startFrames},
+		{Rate48k, Rate32k, 1, 1, false, false, startFrames},
+		{Rate16k, Rate32k, 1, 2, true, false, startFrames},
+		{Rate48k, Rate48k, 1, 1, true, false, startFrames},
+		{Rate16k, Rate32k, 1, 1, false, true, startFrames},
+		{Rate48k, Rate48k, 1, 1, false, true, startFrames},
+		{Rate48k, Rate32k, 1, 1, false, true, startFrames},
+		{Rate48k, Rate32k, 2, 2, true, true, startFrames},
 	} {
-		key := fmt.Sprintf("%d %d %d %d", tc.rate, tc.numRender, tc.numCapture, tc.maxRate)
-		if tc.ns {
-			key += " ns"
-		}
-		t.Run(key, func(t *testing.T) {
-			frames := reference[key]
+		t.Run(tc.key(), func(t *testing.T) {
+			frames := reference[tc.key()]
 			require.Len(t, frames, upstreamScenarioFrames)
 			cfg := DefaultConfig(tc.rate, tc.numCapture)
 			cfg.ReverseNumChannels = tc.numRender
 			cfg.MaxProcessingRate = tc.maxRate
 			cfg.AEC.Enabled = true
 			cfg.NS.Enabled = tc.ns
+			cfg.AGC = AGCConfig{Enabled: tc.agc, FixedDigital: AGCFixedDigital{GainDB: 30}}
 			scenario := newUpstreamScenario(t, cfg)
 
 			var deviations []float64
