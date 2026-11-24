@@ -84,3 +84,76 @@ func TestCascade_ZeroAlloc(t *testing.T) {
 	in := make([]float32, 160)
 	assert.Zero(t, testing.AllocsPerRun(100, func() { c.Process(in) }))
 }
+
+// testHighPassCoefficients returns the coefficients of a second order
+// Butterworth high-pass filter with a cutoff frequency of 100 Hz, from
+// cascaded_biquad_filter_unittest.cc.
+func testHighPassCoefficients() []Coefficients {
+	return []Coefficients{{B: [3]float32{0.97261, -1.94523, 0.97261}, A: [2]float32{-1.94448, 0.94598}}}
+}
+
+// increasingValues mirrors CreateInputWithIncreasingValues, with the
+// length of every upstream test.
+func increasingValues() []float32 {
+	v := make([]float32, 1000)
+	for k := range v {
+		v[k] = float32(k)
+	}
+
+	return v
+}
+
+func constantValues(n int, value float32) []float32 {
+	v := make([]float32, n)
+	for k := range v {
+		v[k] = value
+	}
+
+	return v
+}
+
+// Port of BlockingConfiguration.
+func TestCascade_BlockingConfiguration(t *testing.T) {
+	values := increasingValues()
+	NewCascade([]Coefficients{{}}).Process(values)
+	assert.Equal(t, make([]float32, 1000), values)
+}
+
+// Port of HighPassConfiguration.
+func TestCascade_HighPassConfiguration(t *testing.T) {
+	values := constantValues(1000, 1)
+	NewCascade(testHighPassCoefficients()).Process(values)
+	for k := len(values) / 2; k < len(values); k++ {
+		assert.InDelta(t, 0, values[k], 1e-2)
+	}
+}
+
+// Port of HighPassConfigurationResetFunctionality.
+func TestCascade_HighPassConfigurationResetFunctionality(t *testing.T) {
+	filter := NewCascade(testHighPassCoefficients())
+	values1 := constantValues(100, 1)
+	filter.Process(values1)
+	filter.Reset()
+	values2 := constantValues(100, 1)
+	filter.Process(values2)
+	assert.Equal(t, values1, values2)
+}
+
+// Port of TransparentConfiguration. Upstream filters out of place, the Go
+// filter in place.
+func TestCascade_TransparentConfiguration(t *testing.T) {
+	input := increasingValues()
+	output := increasingValues()
+	NewCascade([]Coefficients{{B: [3]float32{1, 0, 0}}}).Process(output)
+	assert.Equal(t, input, output)
+}
+
+// Port of CascadedConfiguration.
+func TestCascade_CascadedConfiguration(t *testing.T) {
+	input := increasingValues()
+	output := increasingValues()
+	NewCascade([]Coefficients{{B: [3]float32{-1, 0, 0}}, {B: [3]float32{0, 0, -1}}}).Process(output)
+
+	// The cascade is expected to delay the input by two samples.
+	assert.Equal(t, input[:len(input)-2], output[2:])
+}
