@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+# Listening corpus manifest.
+#
+# Each entry pairs a scenario name with what an auditor should listen for
+# in the before/after snapshot. Update when adding new scenarios or
+# changing the tuning being audited.
+
+versions:
+  - id: v0.1.0
+    notes: |
+      Initial listening snapshots are added as releases ship. Each entry
+      lists what to listen for so an auditor can compare against the
+      expected tuning behavior.
+    scenarios: []
+#     - name: echo_kitchen
+#       listen_for: |
+#         Slap-back echo at 0:03 should be inaudible in *after*.
+#         Watch for any chirp/warble around 1.5 kHz when AEC starts
+#         tracking.
+#     - name: noise_cafe
+#       listen_for: |
+#         Babble noise floor should drop ~10 dB without introducing
+#         musical noise / "underwater" artifacts on the speaker.

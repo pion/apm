@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+#
+# Upstream WebRTC source tracked by the APM port and debug.proto.
+#
+# Repository: https://webrtc.googlesource.com/src
+# Commit:     d02cf0dd81db9ffc06c657ea7f24eb305dfe4024
+# Path:       modules/audio_processing/
+#
+# To resync, copy debug.proto from the new commit, update the SHA above and
+# check the field numbers in aecdump.go.

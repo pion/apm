@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+# Clean-speech corpus manifest.
+#
+# Each entry describes one .wav file in this directory (relative path,
+# either ./smoke/<name>.wav or ./full/<name>.wav).
+#
+# Bootstrapping: the corpus is empty until pull.sh runs. CI uses the
+# `synthetic` corpus mode of qa-runner which generates fixtures on the
+# fly, so this list may stay empty without breaking the pipeline.
+
+files: []
+#  - name: smoke/libri_clean_short.wav
+#    speaker: female_us_01
+#    duration_s: 4.2
+#    notes: read prompt, low noise floor

@@ -1,0 +1,14 @@
+state: 0 0 0 0
+state: 50 0 0 1
+state: 55 0 0 0
+state: 100 0 0 1
+state: 110 1 1 0
+state: 599 1 0 0
+state: 900 0 0 1
+state: 901 0 0 0
+state: 1050 0 0 1
+state: 1051 0 0 0
+state: 1200 0 0 1
+state: 1201 0 0 0
+state: 1350 0 0 1
+state: 1351 0 0 0

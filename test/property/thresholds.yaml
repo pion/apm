@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+# Property test thresholds.
+#
+# Each entry is keyed by scenario name (must match the const used in the
+# scenario .go file). Values are pass/fail bounds, not targets; they are
+# revised when tuning changes ship.
+#
+# Units:
+#   - *_db        : decibels
+#   - max_attack_s: seconds
+#   - max_peak_dbfs: peak level threshold (dBFS, negative is below FS)
+
+aec_erle:
+  min_erle_db: 40.0
+  notes: |
+    Synthetic echo path with exponential decay IR (RT60 ≈ 150 ms).
+    AEC must achieve ≥ 40 dB ERLE in steady state: the linear filter
+    and the echo suppressor give 64 dB.
+
+aec_doubletalk:
+  min_erle_db: 40.0
+  notes: |
+    Double-talk: near-end noise overlaps with echo for the middle 50 %.
+    The bound is on the ERLE of the first quarter, before the
+    double-talk, where the canceller gives 61 dB.
+
+ns_snr_gain:
+  min_snr_gain_db: 6.0
+  notes: |
+    Speech + speech-shaped noise at 5 dB input SNR. NS must add ≥ 6 dB SNR.
+
+ns_speech_distortion:
+  max_lsd_db: 3.0
+  max_cepstral_db: 2.0
+  notes: |
+    Clean speech in, NS active. Output spectrum should remain close to
+    input spectrum (low LSD and cepstral distance).
+
+agc_target_level:
+  max_attack_s: 0.5
+  notes: |
+    Step from -30 dBFS to -10 dBFS at t=1s; AGC must converge within
+    0.5 s and within 1 dB of target.
+
+agc_no_overshoot:
+  max_peak_dbfs: 0.0
+  notes: |
+    AGC limiter must keep output peak at or below 0 dBFS (saturation
+    ceiling) regardless of input level. Upstream's limiter targets
+    -1 dBFS knee → 0 dBFS ceiling.
+
+hpf_corner:
+  min_corner_db: -2.5
+  notes: |
+    Swept sine at HPF corner (80 Hz) must be attenuated by ≥ 2.5 dB.
+
+hpf_stopband:
+  min_corner_db: -20.0
+  notes: |
+    DC component (10 Hz tone) must be attenuated by ≥ 20 dB.
