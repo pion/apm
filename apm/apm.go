@@ -334,6 +334,13 @@ func (p *Processor) ProcessStream(near *Frame) error {
 	if err := p.validateFrame(near, p.cfg.SampleRate, p.cfg.NumChannels); err != nil {
 		return err
 	}
+	// Like upstream, the frame is left unchanged when no module runs. The
+	// high-pass filter runs with every module that works on the bands.
+	if p.hpf == nil && p.agc == nil {
+		p.streamDelaySet = false
+
+		return nil
+	}
 
 	// Like upstream, resample before scaling up and after scaling down.
 	data := near.Data
@@ -445,19 +452,23 @@ func (p *Processor) processInner(channels [][]float32, upperBands [][][]float32)
 
 const apmScale = 32768.0
 
+// scaleUp matches FloatToFloatS16: it clamps the samples to [-1, 1] and
+// scales them to the int16 range.
 func scaleUp(data [][]float32) {
 	for _, channel := range data {
-		for i := range channel {
-			channel[i] *= apmScale
+		for i, sample := range channel {
+			channel[i] = max(min(sample, 1), -1) * apmScale
 		}
 	}
 }
 
+// scaleDown matches FloatS16ToFloat: it clamps the samples to the int16
+// range and scales them to [-1, 1].
 func scaleDown(data [][]float32) {
 	const inv = 1.0 / apmScale
 	for _, channel := range data {
-		for i := range channel {
-			channel[i] *= inv
+		for i, sample := range channel {
+			channel[i] = max(min(sample, apmScale), -apmScale) * inv
 		}
 	}
 }

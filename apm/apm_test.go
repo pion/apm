@@ -7,6 +7,7 @@ package apm
 import (
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"github.com/pion/apm/aec"
@@ -23,13 +24,36 @@ func TestProcessStream_RoundtripsSamples(t *testing.T) {
 	require.NoError(t, err)
 	f := NewFrame(Rate16k, 1)
 	for i := range f.Data[0] {
-		f.Data[0][i] = float32(i) / 160
+		f.Data[0][i] = float32(i) / 80
 	}
 	want := append([]float32(nil), f.Data[0]...)
 
 	require.NoError(t, proc.ProcessStream(f))
-	// With all modules disabled, ProcessStream is a pass-through.
+	// With all modules disabled, ProcessStream is a pass-through: like
+	// upstream, even the samples above 1 are not clamped.
 	assert.Equal(t, want, f.Data[0])
+}
+
+// Ports the FloatToFloatS16 and FloatS16ToFloat tests of
+// audio_util_unittest.cc, with their tolerance, and checks the clamping.
+func TestScale(t *testing.T) {
+	floats := []float32{0, 0.4 / 32768, 0.6 / 32768, -0.4 / 32768, -0.6 / 32768, 1, -1, 1, -1}
+	s16 := []float32{0, 0.4, 0.6, -0.4, -0.6, 32768, -32768, 32768, -32768}
+	data := [][]float32{slices.Clone(floats)}
+	scaleUp(data)
+	assert.InDeltaSlice(t, s16, data[0], 0.01)
+
+	s16 = []float32{0, 0.4, 0.6, -0.4, -0.6, 32767, -32768, 32767, -32768}
+	data = [][]float32{slices.Clone(s16)}
+	scaleDown(data)
+	assert.InDeltaSlice(t, floats, data[0], 0.01)
+
+	data = [][]float32{{1.5, -1.5}}
+	scaleUp(data)
+	assert.Equal(t, []float32{32768, -32768}, data[0])
+	data = [][]float32{{40000, -40000}}
+	scaleDown(data)
+	assert.Equal(t, []float32{1, -1}, data[0])
 }
 
 func TestFrame_Validate(t *testing.T) {

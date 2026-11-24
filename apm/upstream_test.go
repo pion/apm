@@ -223,6 +223,7 @@ func TestProcessor_MatchesUpstream(t *testing.T) {
 		{Rate48k, Rate48k, 1, 1, false, startFrames},
 		{Rate48k, Rate48k, 2, 2, false, startFrames},
 		{Rate48k, Rate32k, 2, 1, false, startFrames},
+		{Rate48k, Rate32k, 1, 1, false, startFrames},
 		{Rate16k, Rate32k, 1, 2, true, startFrames},
 		{Rate48k, Rate48k, 1, 1, true, startFrames},
 	} {
