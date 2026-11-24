@@ -472,7 +472,7 @@ func computeSnr(
 		} else {
 			postSnr[i] = 0
 		}
-		priorSnr[i] = 0.98*prevEstimate + (1.0-0.98)*postSnr[i]
+		priorSnr[i] = 0.98*prevEstimate + (1-float32(0.98))*postSnr[i]
 	}
 }
 

@@ -32,7 +32,7 @@ func (w *wienerFilter) update(
 			currentTsa = signalSpectrum[i]/(noiseSpectrum[i]+0.0001) - 1.0
 		}
 
-		snrPrior := 0.98*prevTsa + (1.0-0.98)*currentTsa
+		snrPrior := 0.98*prevTsa + (1-float32(0.98))*currentTsa
 		f := snrPrior / (w.sp.overSubtractionFactor + snrPrior)
 		if f > 1 {
 			f = 1

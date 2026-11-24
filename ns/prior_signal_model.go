@@ -46,11 +46,11 @@ func (p *priorSignalModelEstimator) update(h *histograms) {
 	findFirstOfTwoLargestPeaks(binSizeSpecDiff, &h.spectralDiff, &diffPeakPos, &diffPeakW)
 
 	useSpecFlat := 1
-	if float32(flatPeakW) < 0.3*500 || flatPeakPos < 0.6 {
+	if float32(flatPeakW) < float32(0.3)*500 || flatPeakPos < 0.6 {
 		useSpecFlat = 0
 	}
 	useSpecDiff := 1
-	if float32(diffPeakW) < 0.3*500 || lowLrtFluctuations {
+	if float32(diffPeakW) < float32(0.3)*500 || lowLrtFluctuations {
 		useSpecDiff = 0
 	}
 

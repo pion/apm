@@ -39,19 +39,19 @@ func (s *speechProbabilityEstimator) update(
 	if model.lrt < prior.lrt {
 		widthPrior = kWidthPrior1
 	}
-	ind0 := 0.5 * (tanh32(widthPrior*(model.lrt-prior.lrt)) + 1)
+	ind0 := sigmoid(widthPrior * (model.lrt - prior.lrt))
 
 	widthPrior = kWidthPrior0
 	if model.spectralFlatness > prior.flatnessThreshold {
 		widthPrior = kWidthPrior1
 	}
-	ind1 := 0.5 * (tanh32(widthPrior*(prior.flatnessThreshold-model.spectralFlatness)) + 1)
+	ind1 := sigmoid(1 * widthPrior * (prior.flatnessThreshold - model.spectralFlatness))
 
 	widthPrior = kWidthPrior0
 	if model.spectralDiff < prior.templateDiffThreshold {
 		widthPrior = kWidthPrior1
 	}
-	ind2 := 0.5 * (tanh32(widthPrior*(model.spectralDiff-prior.templateDiffThreshold)) + 1)
+	ind2 := sigmoid(widthPrior * (model.spectralDiff - prior.templateDiffThreshold))
 
 	indPrior := prior.lrtWeighting*ind0 + prior.flatnessWeighting*ind1 + prior.differenceWeighting*ind2
 
@@ -72,4 +72,12 @@ func (s *speechProbabilityEstimator) update(
 	}
 }
 
+// sigmoid matches the indicator functions of
+// SpeechProbabilityEstimator::Update: 0.5f * (tanh(x) + 1.f), with the
+// double precision tanh, computed in double precision and rounded to
+// float once.
+func sigmoid(x float32) float32 { return float32(0.5 * (math.Tanh(float64(x)) + 1)) }
+
+// tanh32 stands for tanhf, the float tanh that upstream calls in
+// ComputeUpperBandsGain.
 func tanh32(x float32) float32 { return float32(math.Tanh(float64(x))) }

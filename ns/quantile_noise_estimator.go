@@ -24,9 +24,9 @@ func newQuantileNoiseEstimator() *quantileNoiseEstimator {
 	for i := range q.logQuantile {
 		q.logQuantile[i] = 8.0
 	}
-	const oneBySimult = 1.0 / float64(kSimult)
+	const oneBySimult = 1 / float32(kSimult)
 	for i := range kSimult {
-		q.counter[i] = int(math.Floor(float64(longStartupPhaseBlocks) * float64(i+1) * oneBySimult))
+		q.counter[i] = int(math.Floor(float64(longStartupPhaseBlocks * (float32(i) + 1) * oneBySimult)))
 	}
 
 	return q

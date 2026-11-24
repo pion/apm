@@ -12,9 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// referenceDelta bounds the difference to upstream on the int16 scale.
-const referenceDelta = 0.05
-
 // referenceFrame is one output band of testdata/upstream.txt. Each line
 // reads "rate channels level frame channel band: samples".
 type referenceFrame struct {
@@ -67,7 +64,10 @@ func (s *referenceSignal) fill(frame int, bands [][][]float32) {
 }
 
 // TestSuppressor_MatchesUpstream compares the output with the output of
-// the upstream NoiseSuppressor at the pinned commit for the same input.
+// the upstream NoiseSuppressor at the pinned commit for the same input,
+// bit for bit. Upstream calls the powf and tanhf of the C library, which
+// may round differently than Go: with those of glibc, the output matches
+// on every frame, and with those of Go, on the frames of the reference.
 func TestSuppressor_MatchesUpstream(t *testing.T) {
 	type stream struct{ rate, channels, level int }
 	want := map[stream]map[int][]referenceFrame{}
@@ -104,7 +104,7 @@ func TestSuppressor_MatchesUpstream(t *testing.T) {
 				require.NoError(t, suppressor.Analyze(bands[0]))
 				require.NoError(t, suppressor.Process(bands[0], bands[1:]...))
 				for _, ref := range frames[frame] {
-					assert.InDeltaSlice(t, ref.samples, bands[ref.band][ref.channel], referenceDelta,
+					assert.Equal(t, ref.samples, bands[ref.band][ref.channel],
 						"frame %d, channel %d, band %d", frame, ref.channel, ref.band)
 				}
 			}

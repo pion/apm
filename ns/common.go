@@ -15,8 +15,10 @@ const (
 	longStartupPhaseBlocks  = 200
 	featureUpdateWindowSize = 500
 
-	ltrFeatureThr   = 0.5
-	binSizeLrt      = 0.1
-	binSizeSpecFlat = 0.05
-	binSizeSpecDiff = 0.1
+	// Like upstream, these are float constants: their arithmetic rounds
+	// like float operations.
+	ltrFeatureThr   float32 = 0.5
+	binSizeLrt      float32 = 0.1
+	binSizeSpecFlat float32 = 0.05
+	binSizeSpecDiff float32 = 0.1
 )
