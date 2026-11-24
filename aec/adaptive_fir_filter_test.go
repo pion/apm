@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pion/apm/internal/dsp/biquad"
 	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,6 +38,138 @@ func TestAdaptiveFirFilter_FilterSize(t *testing.T) {
 func assertMatchesUpstream(t *testing.T, want, got []float32, name string) {
 	t.Helper()
 	assert.Equal(t, want, got, name)
+}
+
+// filterAndAdaptRun holds the state that upstream FilterAndAdapt keeps
+// across the delays: the filter, the gain, the AecState and the signals.
+type filterAndAdaptRun struct {
+	numRenderChannels int
+	filter            *adaptiveFirFilter
+	h2                [][][kFftLengthBy2Plus1]float32
+	h                 [][]float32
+	fft               *aec3Fft
+	renderDelayBuffer *renderDelayBufferImpl
+	gain              *coarseFilterUpdateGain
+	random            *testRandom
+	render            *block
+	state             *aecState
+	analyzer          *renderSignalAnalyzer
+	outputs           []subtractorOutput
+	e2Refined, y2     [][kFftLengthBy2Plus1]float32
+	capture, e        [kBlockSize]float32
+}
+
+func newFilterAndAdaptRun(numRenderChannels, numCaptureChannels int) *filterAndAdaptRun {
+	const sampleRateHz = 48000
+	config := defaultEchoCanceller3Config()
+	filter := newAdaptiveFirFilter(config.filter.refined.lengthBlocks, config.filter.refined.lengthBlocks,
+		config.filter.configChangeDurationBlocks, numRenderChannels)
+	run := &filterAndAdaptRun{
+		numRenderChannels: numRenderChannels,
+		filter:            filter,
+		h2:                make([][][kFftLengthBy2Plus1]float32, numCaptureChannels),
+		h:                 make([][]float32, numCaptureChannels),
+		fft:               newAec3Fft(),
+		gain:              newCoarseFilterUpdateGain(config.filter.coarse, config.filter.configChangeDurationBlocks),
+		random:            newTestRandom(42),
+		render:            newBlock(numBandsForRate(sampleRateHz), numRenderChannels),
+		state:             newAecState(defaultEchoCanceller3Config(), numCaptureChannels),
+		analyzer:          newRenderSignalAnalyzer(config),
+		outputs:           make([]subtractorOutput, numCaptureChannels),
+		e2Refined:         make([][kFftLengthBy2Plus1]float32, numCaptureChannels),
+		y2:                make([][kFftLengthBy2Plus1]float32, numCaptureChannels),
+	}
+	for ch := range numCaptureChannels {
+		run.h2[ch] = make([][kFftLengthBy2Plus1]float32, filter.maxFilterSizePartitions())
+		run.h[ch] = make([]float32, getTimeDomainLength(filter.maxFilterSizePartitions()))
+	}
+	config.delay.defaultDelay = 1
+	run.renderDelayBuffer = newRenderDelayBufferImpl(config, sampleRateHz, numRenderChannels)
+
+	return run
+}
+
+// generate produces a render block and its delayed, downmixed echo with
+// some noise, both high-pass filtered.
+func (r *filterAndAdaptRun) generate(delayBuffers []*testDelayBuffer, renderHighPass, captureHighPass []*biquad.Cascade) {
+	var channelCapture, noise [kBlockSize]float32
+	clear(r.capture[:])
+	for ch := range r.numRenderChannels {
+		randomizeSampleVector(r.random, r.render.view(0, ch))
+		delayBuffers[ch].delay(r.render.view(0, ch), channelCapture[:])
+		for k := range r.capture {
+			r.capture[k] += channelCapture[k] / float32(r.numRenderChannels)
+		}
+	}
+	randomizeSampleVector(r.random, noise[:])
+	noiseScaling := float32(1.0) / 100 / float32(r.numRenderChannels)
+	for k := range r.capture {
+		r.capture[k] += noise[k] * noiseScaling
+	}
+	for ch, filter := range renderHighPass {
+		filter.Process(r.render.view(0, ch))
+	}
+	captureHighPass[0].Process(r.capture[:])
+}
+
+// step cancels the echo of a block, then adapts the filter and updates
+// the AecState.
+func (r *filterAndAdaptRun) step(blockIndex int) {
+	const scale = 1.0 / float32(kFftLengthBy2)
+	r.renderDelayBuffer.insert(r.render)
+	if blockIndex == 0 {
+		r.renderDelayBuffer.reset()
+	}
+	r.renderDelayBuffer.prepareCaptureProcessing()
+	renderBuffer := r.renderDelayBuffer.getRenderBuffer()
+	r.analyzer.update(renderBuffer, r.state.minDirectPathFilterDelay(), true)
+
+	var echo, errorData, gainData fftData
+	var scratch [kFftLength]float32
+	r.filter.filter(renderBuffer, &echo)
+	r.fft.inv(&echo, &scratch)
+	for k := range r.e {
+		r.e[k] = min(max(r.capture[k]-scratch[k+kFftLengthBy2]*scale, -32768), 32767)
+	}
+	r.fft.zeroPaddedFft(&r.e, windowRectangular, &errorData)
+	for i := range r.outputs {
+		for k := range kBlockSize {
+			r.outputs[i].sRefined[k] = scale * scratch[k+kFftLengthBy2]
+		}
+	}
+
+	var renderPower [kFftLengthBy2Plus1]float32
+	renderBuffer.spectralSum(r.filter.sizePartitions(), &renderPower)
+	r.gain.compute(&renderPower, r.analyzer, &errorData, r.filter.sizePartitions(), false, &gainData)
+	r.filter.adaptUpdateImpulse(renderBuffer, &gainData, &r.h[0])
+	r.state.handleEchoPathChange(echoPathVariability{})
+
+	r.h2[0] = r.filter.computeFrequencyResponse(r.h2[0])
+	r.state.update(delayEstimate{}, false, r.h2, r.h, renderBuffer, r.e2Refined, r.y2, r.outputs)
+}
+
+// Port of AdaptiveFirFilterMultiChannel.FilterAndAdapt: the filter is
+// able to perform well for every delay. Like upstream, the filter and the
+// AecState carry over from one delay to the next.
+func TestAdaptiveFirFilter_FilterAndAdapt(t *testing.T) {
+	for _, numRenderChannels := range []int{1, 4} {
+		for _, numCaptureChannels := range []int{1, 8} {
+			t.Run(fmt.Sprintf("render %d capture %d", numRenderChannels, numCaptureChannels), func(t *testing.T) {
+				t.Parallel()
+				run := newFilterAndAdaptRun(numRenderChannels, numCaptureChannels)
+				for _, delaySamples := range []int{0, 64, 150, 200, 301} {
+					delayBuffers := newTestDelayBuffers(numRenderChannels, delaySamples)
+					renderHighPass := newSubtractorTestHighPass(numRenderChannels)
+					captureHighPass := newSubtractorTestHighPass(1)
+					for blockIndex := range 1000 * numRenderChannels {
+						run.generate(delayBuffers, renderHighPass, captureHighPass)
+						run.step(blockIndex)
+					}
+					assert.Less(t, 1000*energy(run.e[:]), energy(run.capture[:]), "delay %d", delaySamples)
+				}
+			})
+		}
+	}
 }
 
 // referenceCursor reads the lines of a reference file that end with a
