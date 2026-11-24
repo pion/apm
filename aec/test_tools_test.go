@@ -4,6 +4,13 @@
 
 package aec
 
+import (
+	"slices"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
 // testRandom mirrors webrtc::Random, the xorshift generator the upstream
 // tests use.
 type testRandom struct {
@@ -62,5 +69,46 @@ func (b *testDelayBuffer) delay(x, xDelayed []float32) {
 		xDelayed[k] = b.buffer[b.nextInsertIndex]
 		b.buffer[b.nextInsertIndex] = x[k]
 		b.nextInsertIndex = (b.nextInsertIndex + 1) % len(b.buffer)
+	}
+}
+
+// Port of FloatDelayBuffer.
+func TestTestDelayBuffer(t *testing.T) {
+	const delay = 10
+	const blockSize = 50
+	buffer := newTestDelayBuffer(delay)
+	v := make([]float32, 1000)
+	for k := range v {
+		v[k] = float32(k)
+	}
+	vDelayed := slices.Clone(v)
+	for k := 0; k < len(v); k += blockSize {
+		buffer.delay(v[k:k+blockSize], vDelayed[k:k+blockSize])
+	}
+	for k := delay; k < len(v); k++ {
+		assert.Equal(t, v[k-delay], vDelayed[k])
+	}
+}
+
+// Port of RandomizeSampleVector.
+func TestRandomizeSampleVector(t *testing.T) {
+	random := newTestRandom(42)
+	v := make([]float32, 50)
+	vRef := slices.Clone(v)
+	randomizeSampleVector(random, v)
+	assert.NotEqual(t, vRef, v)
+	vRef = slices.Clone(v)
+	randomizeSampleVector(random, v)
+	assert.NotEqual(t, vRef, v)
+}
+
+// Port of RandomizeSampleVectorWithAmplitude.
+func TestRandomizeSampleVectorAmplitude(t *testing.T) {
+	random := newTestRandom(42)
+	v := make([]float32, 50)
+	for _, amplitude := range []float32{1000, 100} {
+		randomizeSampleVectorAmplitude(random, v, amplitude)
+		assert.GreaterOrEqual(t, amplitude, slices.Max(v))
+		assert.LessOrEqual(t, -amplitude, slices.Min(v))
 	}
 }
