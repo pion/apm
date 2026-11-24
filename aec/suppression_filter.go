@@ -44,7 +44,7 @@ func (s *suppressionFilter) applyGain(
 	// gain.
 	var noiseGain [kFftLengthBy2Plus1]float32
 	for i, value := range gain {
-		noiseGain[i] = float32(math.Sqrt(float64(1 - value*value)))
+		noiseGain[i] = float32(math.Sqrt(float64(1 - value*value))) //nolint:gosec // G602 false positive on a range loop.
 	}
 	highBandsNoiseScaling := 0.4 * float32(math.Sqrt(float64(1-highBandsGain*highBandsGain)))
 

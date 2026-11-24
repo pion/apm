@@ -95,7 +95,7 @@ func (g *refinedFilterUpdateGain) computeGain(
 	var mu [kFftLengthBy2Plus1]float32
 	for k := range mu {
 		if x2[k] >= g.currentConfig.noiseGate {
-			mu[k] = g.hError[k] / (0.5*g.hError[k]*x2[k] + float32(sizePartitions)*output.E2Refined[k])
+			mu[k] = g.hError[k] / (0.5*g.hError[k]*x2[k] + float32(sizePartitions)*output.E2Refined[k]) //nolint:gosec // G602 false positive on a range loop.
 		}
 	}
 
@@ -105,13 +105,13 @@ func (g *refinedFilterUpdateGain) computeGain(
 
 	// H_error = H_error - 0.5 * mu * X2 * H_error.
 	for k := range g.hError {
-		g.hError[k] -= 0.5 * mu[k] * x2[k] * g.hError[k]
+		g.hError[k] -= 0.5 * mu[k] * x2[k] * g.hError[k] //nolint:gosec // G602 false positive on a range loop.
 	}
 
 	// G = mu * E.
 	for k := range mu {
-		gain.re[k] = mu[k] * output.ERefined.re[k]
-		gain.im[k] = mu[k] * output.ERefined.im[k]
+		gain.re[k] = mu[k] * output.ERefined.re[k] //nolint:gosec // G602 false positive on a range loop.
+		gain.im[k] = mu[k] * output.ERefined.im[k] //nolint:gosec // G602 false positive on a range loop.
 	}
 }
 

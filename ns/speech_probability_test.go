@@ -16,8 +16,8 @@ func meanSpeechProbability(t *testing.T, snr float32) float32 {
 	var spectrum [fftSizeBy2Plus1]float32
 	var sum float32
 	for i := range spectrum {
-		spectrum[i] = 100 + float32(i)
-		sum += spectrum[i]
+		spectrum[i] = 100 + float32(i) //nolint:gosec // G602 false positive on a range loop.
+		sum += spectrum[i]             //nolint:gosec // G602 false positive on a range loop.
 	}
 	snrs := constantSpectrum(snr)
 	// 600 frames run past one feature window, so the prior model is updated too.

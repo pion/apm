@@ -42,7 +42,7 @@ func TestFastMathSpans(t *testing.T) {
 func TestFilterBankWindowIsPowerComplementary(t *testing.T) {
 	var window [fftSize]float32
 	for i := range window {
-		window[i] = 1
+		window[i] = 1 //nolint:gosec // G602 false positive on a range loop.
 	}
 	applyFilterBankWindow(&window)
 
@@ -57,7 +57,7 @@ func TestFFTRoundTrip(t *testing.T) {
 	f := newFFT()
 	var in, out [fftSize]float32
 	for i := range in {
-		in[i] = float32(1000 * math.Sin(float64(i)*0.3))
+		in[i] = float32(1000 * math.Sin(float64(i)*0.3)) //nolint:gosec // G602 false positive on a range loop.
 	}
 	// Like upstream, the forward transform overwrites its input.
 	data := in

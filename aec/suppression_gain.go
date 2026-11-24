@@ -363,8 +363,8 @@ func (s *suppressionGain) lowerBandGain(
 
 		// Clamp the gains.
 		for k := range gain {
-			channelGain[k] = max(min(channelGain[k], maxGain[k]), minGain[k])
-			gain[k] = min(gain[k], channelGain[k])
+			channelGain[k] = max(min(channelGain[k], maxGain[k]), minGain[k]) //nolint:gosec // G602 false positive on a range loop.
+			gain[k] = min(gain[k], channelGain[k])                            //nolint:gosec // G602 false positive on a range loop.
 		}
 
 		// Store the data required for the gain computation of the next

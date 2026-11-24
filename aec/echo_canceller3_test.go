@@ -494,7 +494,7 @@ func (e *echoCanceller3Scenario) generateRender(index, band int) [splitBandSize]
 		}
 		e.delayBuffers[band][ch].delay(samples, delayed[:])
 		for k := range echo {
-			echo[k] += delayed[k] / float32(len(e.render))
+			echo[k] += delayed[k] / float32(len(e.render)) //nolint:gosec // G602 false positive on a range loop.
 		}
 	}
 
@@ -510,7 +510,7 @@ func (e *echoCanceller3Scenario) generate(index int) {
 		for ch := range e.capture {
 			randomizeSampleVectorAmplitude(e.random, nearend[:], nearendAmplitude)
 			for k := range echo {
-				e.capture[ch][band][k] = 0.6*echo[k]/float32(ch+1) + nearend[k]
+				e.capture[ch][band][k] = 0.6*echo[k]/float32(ch+1) + nearend[k] //nolint:gosec // G602 false positive on a range loop.
 			}
 			if band == 0 && inRange(index, 330, 334) {
 				e.capture[ch][band][17] += 40000

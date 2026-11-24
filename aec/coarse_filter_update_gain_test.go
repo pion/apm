@@ -60,7 +60,7 @@ func runCoarseFilterUpdateTest(
 		coarseFilter.filter(renderBuffer, &echo)
 		fft.inv(&echo, &scratch)
 		for i := range e {
-			e[i] = min(max(y[i]-scratch[i+kFftLengthBy2]*scale, -32768), 32767)
+			e[i] = min(max(y[i]-scratch[i+kFftLengthBy2]*scale, -32768), 32767) //nolint:gosec // G602 false positive on a range loop.
 		}
 		fft.zeroPaddedFft(&e, windowRectangular, &errCoarse)
 

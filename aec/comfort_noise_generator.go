@@ -59,7 +59,7 @@ func generateComfortNoise(
 	// Compute the square root spectrum.
 	var noise [kFftLengthBy2Plus1]float32
 	for k, value := range n2 {
-		noise[k] = float32(math.Sqrt(float64(value)))
+		noise[k] = float32(math.Sqrt(float64(value))) //nolint:gosec // G602 false positive on a range loop.
 	}
 
 	// Compute the noise level for the upper bands.

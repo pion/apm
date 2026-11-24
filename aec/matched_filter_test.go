@@ -54,14 +54,14 @@ func runReferenceScenario(filter *matchedFilter, delay, preEchoDelay int) []floa
 		var render, capture [referenceSubBlockSize]float32
 		for i := range render {
 			seed = seed*1664525 + 1013904223
-			render[i] = float32(int(seed>>16)%16001 - 8000)
-			history = append(history, render[i])
+			render[i] = float32(int(seed>>16)%16001 - 8000) //nolint:gosec // G602 false positive on a range loop.
+			history = append(history, render[i])            //nolint:gosec // G602 false positive on a range loop.
 			now := len(history) - 1
 			if now >= delay {
-				capture[i] = history[now-delay]
+				capture[i] = history[now-delay] //nolint:gosec // G602 false positive on a range loop.
 			}
 			if preEchoDelay >= 0 && now > preEchoDelay {
-				capture[i] += 0.8 * (history[now-preEchoDelay] + history[now-preEchoDelay-1])
+				capture[i] += 0.8 * (history[now-preEchoDelay] + history[now-preEchoDelay-1]) //nolint:gosec // G602 false positive on a range loop.
 			}
 		}
 

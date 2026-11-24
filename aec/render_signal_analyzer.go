@@ -26,7 +26,7 @@ func identifySmallNarrowBandRegions(
 		}
 	}
 	for k := range narrowBandCounters {
-		if channelCounters[k] > 0 {
+		if channelCounters[k] > 0 { //nolint:gosec // G602 false positive on a range loop.
 			narrowBandCounters[k]++
 		} else {
 			narrowBandCounters[k] = 0

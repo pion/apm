@@ -21,7 +21,7 @@ func formSubbandMap() [kFftLengthBy2Plus1]int {
 		if k >= boundaries[subband] {
 			subband++
 		}
-		mapBandToSubband[k] = subband - 1
+		mapBandToSubband[k] = subband - 1 //nolint:gosec // G602 false positive on a range loop.
 	}
 
 	return mapBandToSubband
@@ -100,7 +100,7 @@ func subbandPowers(powerSpectrum *[kFftLengthBy2Plus1]float32) [kSubbands]float3
 	boundaries := erleBandBoundaries()
 	var powers [kSubbands]float32
 	for subband := range powers {
-		powers[subband] = sum(powerSpectrum[boundaries[subband]:boundaries[subband+1]])
+		powers[subband] = sum(powerSpectrum[boundaries[subband]:boundaries[subband+1]]) //nolint:gosec // G602 false positive on a range loop.
 	}
 
 	return powers
@@ -302,17 +302,17 @@ func (s *signalDependentErleEstimator) computeEchoEstimatePerFilterSection(
 			for blk := s.sectionBoundariesBlocks[section]; blk < blockLimit; blk++ {
 				for _, spectrum := range spectrumRenderBuffer.buffer[idxRender] {
 					for k := range x2Section {
-						x2Section[k] += spectrum[k] * oneByNumRenderChannels
+						x2Section[k] += spectrum[k] * oneByNumRenderChannels //nolint:gosec // G602 false positive on a range loop.
 					}
 				}
 				for k := range h2Section {
-					h2Section[k] += filterFrequencyResponses[captureCh][blk][k]
+					h2Section[k] += filterFrequencyResponses[captureCh][blk][k] //nolint:gosec // G602 false positive on a range loop.
 				}
 				idxRender = spectrumRenderBuffer.incIndex(idxRender)
 			}
 
 			for k := range x2Section {
-				s.s2SectionAccum[captureCh][section][k] = x2Section[k] * h2Section[k]
+				s.s2SectionAccum[captureCh][section][k] = x2Section[k] * h2Section[k] //nolint:gosec // G602 false positive on a range loop.
 			}
 		}
 

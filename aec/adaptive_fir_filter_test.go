@@ -98,13 +98,13 @@ func (r *filterAndAdaptRun) generate(delayBuffers []*testDelayBuffer, renderHigh
 		randomizeSampleVector(r.random, r.render.view(0, ch))
 		delayBuffers[ch].delay(r.render.view(0, ch), channelCapture[:])
 		for k := range r.capture {
-			r.capture[k] += channelCapture[k] / float32(r.numRenderChannels)
+			r.capture[k] += channelCapture[k] / float32(r.numRenderChannels) //nolint:gosec // G602 false positive on a range loop.
 		}
 	}
 	randomizeSampleVector(r.random, noise[:])
 	noiseScaling := float32(1.0) / 100 / float32(r.numRenderChannels)
 	for k := range r.capture {
-		r.capture[k] += noise[k] * noiseScaling
+		r.capture[k] += noise[k] * noiseScaling //nolint:gosec // G602 false positive on a range loop.
 	}
 	for ch, filter := range renderHighPass {
 		filter.Process(r.render.view(0, ch))
@@ -129,7 +129,7 @@ func (r *filterAndAdaptRun) step(blockIndex int) {
 	r.filter.filter(renderBuffer, &echo)
 	r.fft.inv(&echo, &scratch)
 	for k := range r.e {
-		r.e[k] = min(max(r.capture[k]-scratch[k+kFftLengthBy2]*scale, -32768), 32767)
+		r.e[k] = min(max(r.capture[k]-scratch[k+kFftLengthBy2]*scale, -32768), 32767) //nolint:gosec // G602 false positive on a range loop.
 	}
 	r.fft.zeroPaddedFft(&r.e, windowRectangular, &errorData)
 	for i := range r.outputs {
@@ -307,7 +307,7 @@ func (s *filterAndAdaptScenario) step(index int) {
 	s.filter.filter(renderBuffer, &s.echo)
 	s.fft.inv(&s.echo, &scratch)
 	for k := range s.filterError {
-		s.filterError[k] = min(max(s.capture[k]-scratch[k+kFftLengthBy2]*scale, -32768), 32767)
+		s.filterError[k] = min(max(s.capture[k]-scratch[k+kFftLengthBy2]*scale, -32768), 32767) //nolint:gosec // G602 false positive on a range loop.
 	}
 	s.fft.zeroPaddedFft(&s.filterError, windowRectangular, &errorData)
 	renderBuffer.spectralSum(s.filter.sizePartitions(), &s.renderPower)

@@ -54,7 +54,7 @@ func sumChannels(spectra [][kFftLengthBy2Plus1]float32) [kFftLengthBy2Plus1]floa
 	var power [kFftLengthBy2Plus1]float32
 	for ch := range spectra {
 		for k := range power {
-			power[k] += spectra[ch][k]
+			power[k] += spectra[ch][k] //nolint:gosec // G602 false positive on a range loop.
 		}
 	}
 
@@ -142,8 +142,8 @@ func (r *residualEchoEstimator) estimate(
 		state.getResidualEchoScaling(residualScaling[:])
 		for ch := range r2 {
 			for k := range residualScaling {
-				r2[ch][k] *= residualScaling[k]
-				r2Unbounded[ch][k] *= residualScaling[k]
+				r2[ch][k] *= residualScaling[k]          //nolint:gosec // G602 false positive on a range loop.
+				r2Unbounded[ch][k] *= residualScaling[k] //nolint:gosec // G602 false positive on a range loop.
 			}
 		}
 	}
@@ -202,8 +202,8 @@ func (r *residualEchoEstimator) estimateNonLinear(
 		// Subtract the stationary noise power to avoid stationary noise
 		// causing excessive echo suppression.
 		for k := range x2 {
-			x2[k] -= r.config.echoModel.stationaryGateSlope * r.x2NoiseFloor[k]
-			x2[k] = max(0, x2[k])
+			x2[k] -= r.config.echoModel.stationaryGateSlope * r.x2NoiseFloor[k] //nolint:gosec // G602 false positive on a range loop.
+			x2[k] = max(0, x2[k])                                               //nolint:gosec // G602 false positive on a range loop.
 		}
 
 		nonLinearEstimate(echoPathGain, &x2, r2)

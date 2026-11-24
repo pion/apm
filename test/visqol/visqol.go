@@ -135,8 +135,8 @@ func parseOutput(output, ref, deg string) (*Result, error) {
 	for line := range strings.SplitSeq(output, "\n") {
 		line = strings.TrimSpace(line)
 		const prefix = "MOS-LQO:"
-		if i := strings.Index(line, prefix); i >= 0 {
-			v, err := strconv.ParseFloat(strings.TrimSpace(line[i+len(prefix):]), 64)
+		if _, score, found := strings.Cut(line, prefix); found {
+			v, err := strconv.ParseFloat(strings.TrimSpace(score), 64)
 			if err != nil {
 				return nil, fmt.Errorf("visqol: malformed score line %q: %w", line, err)
 			}

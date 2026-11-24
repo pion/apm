@@ -114,7 +114,7 @@ func TestStationarityEstimator_MatchesUpstream(t *testing.T) {
 					}
 				}
 				for k := range reverb {
-					reverb[k] = 2e3 * random.randFloat()
+					reverb[k] = 2e3 * random.randFloat() //nolint:gosec // G602 false positive on a range loop.
 				}
 				estimator.updateNoiseEstimator(buffer.buffer[buffer.write])
 				idxCurrent := buffer.offsetIndex(buffer.write, 14)

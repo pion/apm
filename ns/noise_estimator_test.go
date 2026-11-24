@@ -12,7 +12,7 @@ import (
 func constantSpectrum(v float32) *[fftSizeBy2Plus1]float32 {
 	var s [fftSizeBy2Plus1]float32
 	for i := range s {
-		s[i] = v
+		s[i] = v //nolint:gosec // G602 false positive on a range loop.
 	}
 
 	return &s

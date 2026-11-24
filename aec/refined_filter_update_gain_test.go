@@ -79,7 +79,7 @@ func runRefinedFilterUpdateTest(
 		refinedFilter.filter(renderBuffer, &echo)
 		fft.inv(&echo, &scratch)
 		for i := range out.eRefined {
-			out.eRefined[i] = min(max(y[i]-scratch[i+kFftLengthBy2]*scale, -32768), 32767)
+			out.eRefined[i] = min(max(y[i]-scratch[i+kFftLengthBy2]*scale, -32768), 32767) //nolint:gosec // G602 false positive on a range loop.
 		}
 		fft.zeroPaddedFft(&out.eRefined, windowRectangular, &out.ERefined)
 
@@ -87,7 +87,7 @@ func runRefinedFilterUpdateTest(
 		coarseFilter.filter(renderBuffer, &echo)
 		fft.inv(&echo, &scratch)
 		for i := range out.eCoarse {
-			out.eCoarse[i] = min(max(y[i]-scratch[i+kFftLengthBy2]*scale, -32768), 32767)
+			out.eCoarse[i] = min(max(y[i]-scratch[i+kFftLengthBy2]*scale, -32768), 32767) //nolint:gosec // G602 false positive on a range loop.
 		}
 		fft.zeroPaddedFft(&out.eCoarse, windowRectangular, &errCoarse)
 

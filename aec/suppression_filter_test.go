@@ -168,7 +168,7 @@ func TestSuppressionFilter_MatchesUpstream(t *testing.T) {
 					amplitude = 60000
 				}
 				for k := range gain {
-					gain[k] = random.randFloat()
+					gain[k] = random.randFloat() //nolint:gosec // G602 false positive on a range loop.
 				}
 				highBandsGain := random.randFloat()
 				for ch := range tc.numChannels {

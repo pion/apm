@@ -60,7 +60,7 @@ func (r *renderBuffer) addSpectra(position, numSpectra int, x2 *[kFftLengthBy2Pl
 	for range numSpectra {
 		for _, channelSpectrum := range r.spectrumBuf.buffer[position] {
 			for k := range x2 {
-				x2[k] += channelSpectrum[k]
+				x2[k] += channelSpectrum[k] //nolint:gosec // G602 false positive on a range loop.
 			}
 		}
 		position = r.spectrumBuf.incIndex(position)

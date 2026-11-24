@@ -213,14 +213,14 @@ func (s *echoRemoverScenario) generate(index int) {
 			}
 			s.delayBuffers[band*s.numRender+ch].delay(samples, delayed[:])
 			for k := range echo {
-				echo[k] += delayed[k] / float32(s.numRender)
+				echo[k] += delayed[k] / float32(s.numRender) //nolint:gosec // G602 false positive on a range loop.
 			}
 		}
 		for ch := range s.numCapture {
 			randomizeSampleVectorAmplitude(s.random, nearend[:], nearendAmplitude)
 			samples := s.capture.view(band, ch)
 			for k := range echo {
-				samples[k] = pathGain*echo[k]/float32(ch+1) + nearend[k]
+				samples[k] = pathGain*echo[k]/float32(ch+1) + nearend[k] //nolint:gosec // G602 false positive on a range loop.
 			}
 		}
 	}

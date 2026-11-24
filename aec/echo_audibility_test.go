@@ -86,7 +86,7 @@ func TestEchoAudibility_MatchesUpstream(t *testing.T) {
 			for index := range stationarityScenarioSteps {
 				echoAudibilityInsertRender(index, random, render, renderDelayBuffer)
 				for k := range reverb {
-					reverb[k] = 100 * random.randFloat()
+					reverb[k] = 100 * random.randFloat() //nolint:gosec // G602 false positive on a range loop.
 				}
 				delayBlocks := 3
 				if index >= 1500 {

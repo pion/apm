@@ -48,7 +48,7 @@ func maxSpectrum(spectra [][kFftLengthBy2Plus1]float32, use []bool) [kFftLengthB
 			continue
 		}
 		for k := range result {
-			result[k] = max(result[k], spectra[ch][k])
+			result[k] = max(result[k], spectra[ch][k]) //nolint:gosec // G602 false positive on a range loop.
 		}
 	}
 

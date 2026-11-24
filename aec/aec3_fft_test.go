@@ -41,13 +41,13 @@ func TestAec3Fft_MatchesUpstream(t *testing.T) {
 	var signal [kFftLength]float32
 	var first, second [kFftLengthBy2]float32
 	for i := range signal {
-		signal[i] = next()
+		signal[i] = next() //nolint:gosec // G602 false positive on a range loop.
 	}
 	for i := range first {
-		first[i] = next()
+		first[i] = next() //nolint:gosec // G602 false positive on a range loop.
 	}
 	for i := range second {
-		second[i] = next()
+		second[i] = next() //nolint:gosec // G602 false positive on a range loop.
 	}
 
 	fft := newAec3Fft()
@@ -98,7 +98,7 @@ func TestAec3Fft_Fft(t *testing.T) {
 	assertEach(t, 0, spectrum.im[:], "im")
 
 	for k := range samples {
-		samples[k] = 1
+		samples[k] = 1 //nolint:gosec // G602 false positive on a range loop.
 	}
 	fft.fwd(&samples, &spectrum)
 	assert.Equal(t, float32(128), spectrum.re[0])
@@ -137,8 +137,8 @@ func TestAec3Fft_FftAndIfft(t *testing.T) {
 	v := 0
 	for range 20 {
 		for j := range samples {
-			samples[j] = float32(v)
-			samplesRef[j] = samples[j] * 64
+			samples[j] = float32(v)         //nolint:gosec // G602 false positive on a range loop.
+			samplesRef[j] = samples[j] * 64 //nolint:gosec // G602 false positive on a range loop.
 			v++
 		}
 		fft.fwd(&samples, &spectrum)
@@ -157,8 +157,8 @@ func TestAec3Fft_ZeroPaddedFft(t *testing.T) {
 	v := 0
 	for range 20 {
 		for j := range xIn {
-			xIn[j] = float32(v)
-			xRef[j+kFftLengthBy2] = xIn[j] * 64
+			xIn[j] = float32(v)                 //nolint:gosec // G602 false positive on a range loop.
+			xRef[j+kFftLengthBy2] = xIn[j] * 64 //nolint:gosec // G602 false positive on a range loop.
 			v++
 		}
 		fft.zeroPaddedFft(&xIn, windowRectangular, &spectrum)
@@ -177,7 +177,7 @@ func TestAec3Fft_PaddedFft(t *testing.T) {
 	v := 0
 	for range 20 {
 		for j := range xIn {
-			xIn[j] = float32(v)
+			xIn[j] = float32(v) //nolint:gosec // G602 false positive on a range loop.
 			v++
 		}
 
@@ -185,7 +185,7 @@ func TestAec3Fft_PaddedFft(t *testing.T) {
 		copy(xRef[kFftLengthBy2:], xIn[:])
 		xOldRef = xIn
 		for j := range xRef {
-			xRef[j] *= 64
+			xRef[j] *= 64 //nolint:gosec // G602 false positive on a range loop.
 		}
 
 		fft.paddedFft(&xIn, &xOld, windowRectangular, &spectrum)
