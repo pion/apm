@@ -3,7 +3,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT AND BSD-3-Clause AND LicenseRef-Ooura
 
-//nolint:varnamelen // The names of ooura_fft.cc.
+//nolint:varnamelen,dupl // The code of ooura_fft.cc, which fft4g.cc repeats in parts.
 package ooura
 
 // Fft128 matches OouraFft::Fft, on the C path: it computes in place the

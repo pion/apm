@@ -10,7 +10,7 @@ import (
 
 // A small radix-2 real FFT helper used by lsd/cepstral. Self-contained so
 // the metrics package doesn't pull in gonum just for this: keeps test
-// runtime fast. Production code uses internal/dsp/fft.
+// runtime fast.
 
 type rfftPlan struct {
 	n     int

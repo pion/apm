@@ -13,7 +13,6 @@ import (
 )
 
 // referenceDelta bounds the difference to upstream on the int16 scale.
-// The Go FFT rounds differently than the Ooura FFT used upstream.
 const referenceDelta = 0.05
 
 // referenceFrame is one output band of testdata/upstream.txt. Each line

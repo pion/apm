@@ -59,8 +59,10 @@ func TestFFTRoundTrip(t *testing.T) {
 	for i := range in {
 		in[i] = float32(1000 * math.Sin(float64(i)*0.3))
 	}
+	// Like upstream, the forward transform overwrites its input.
+	data := in
 	var re, im [fftSizeBy2Plus1]float32
-	f.forward(&in, &re, &im)
+	f.forward(&data, &re, &im)
 	f.inverse(&re, &im, &out)
 	assert.InDeltaSlice(t, in[:], out[:], 1e-2)
 }
