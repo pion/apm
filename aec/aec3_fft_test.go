@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: 2017 The WebRTC project authors
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT AND BSD-3-Clause
 
 package aec
 
@@ -71,4 +72,127 @@ func TestAec3Fft_MatchesUpstream(t *testing.T) {
 	var power [kFftLengthBy2Plus1]float32
 	data.spectrum(&power)
 	assertTransform(t, reference["spectrum"], power[:], "spectrum")
+}
+
+func assertEach(t *testing.T, want float32, got []float32, name string) {
+	t.Helper()
+	for k, v := range got {
+		assert.Equal(t, want, v, "%s[%d]", name, k)
+	}
+}
+
+// Port of Fft.
+func TestAec3Fft_Fft(t *testing.T) {
+	fft := newAec3Fft()
+	var samples [kFftLength]float32
+	var spectrum fftData
+
+	fft.fwd(&samples, &spectrum)
+	assertEach(t, 0, spectrum.re[:], "re")
+	assertEach(t, 0, spectrum.im[:], "im")
+
+	samples = [kFftLength]float32{}
+	samples[0] = 1
+	fft.fwd(&samples, &spectrum)
+	assertEach(t, 1, spectrum.re[:], "re")
+	assertEach(t, 0, spectrum.im[:], "im")
+
+	for k := range samples {
+		samples[k] = 1
+	}
+	fft.fwd(&samples, &spectrum)
+	assert.Equal(t, float32(128), spectrum.re[0])
+	assertEach(t, 0, spectrum.re[1:], "re")
+	assertEach(t, 0, spectrum.im[:], "im")
+}
+
+// Port of Ifft.
+func TestAec3Fft_Ifft(t *testing.T) {
+	fft := newAec3Fft()
+	var samples [kFftLength]float32
+	var spectrum fftData
+
+	fft.inv(&spectrum, &samples)
+	assertEach(t, 0, samples[:], "samples")
+
+	for k := range spectrum.re {
+		spectrum.re[k] = 1
+	}
+	fft.inv(&spectrum, &samples)
+	assert.Equal(t, float32(64), samples[0])
+	assertEach(t, 0, samples[1:], "samples")
+
+	spectrum = fftData{}
+	spectrum.re[0] = 128
+	fft.inv(&spectrum, &samples)
+	assertEach(t, 64, samples[:], "samples")
+}
+
+// Port of FftAndIfft.
+func TestAec3Fft_FftAndIfft(t *testing.T) {
+	fft := newAec3Fft()
+	var samples, samplesRef [kFftLength]float32
+	var spectrum fftData
+
+	v := 0
+	for range 20 {
+		for j := range samples {
+			samples[j] = float32(v)
+			samplesRef[j] = samples[j] * 64
+			v++
+		}
+		fft.fwd(&samples, &spectrum)
+		fft.inv(&spectrum, &samples)
+		assert.InDeltaSlice(t, samplesRef[:], samples[:], 0.001)
+	}
+}
+
+// Port of ZeroPaddedFft.
+func TestAec3Fft_ZeroPaddedFft(t *testing.T) {
+	fft := newAec3Fft()
+	var xIn [kFftLengthBy2]float32
+	var xRef, xOut [kFftLength]float32
+	var spectrum fftData
+
+	v := 0
+	for range 20 {
+		for j := range xIn {
+			xIn[j] = float32(v)
+			xRef[j+kFftLengthBy2] = xIn[j] * 64
+			v++
+		}
+		fft.zeroPaddedFft(&xIn, windowRectangular, &spectrum)
+		fft.inv(&spectrum, &xOut)
+		assert.InDeltaSlice(t, xRef[:], xOut[:], 0.1)
+	}
+}
+
+// Port of PaddedFft.
+func TestAec3Fft_PaddedFft(t *testing.T) {
+	fft := newAec3Fft()
+	var xIn, xOld, xOldRef [kFftLengthBy2]float32
+	var xRef, xOut [kFftLength]float32
+	var spectrum fftData
+
+	v := 0
+	for range 20 {
+		for j := range xIn {
+			xIn[j] = float32(v)
+			v++
+		}
+
+		copy(xRef[:], xOld[:])
+		copy(xRef[kFftLengthBy2:], xIn[:])
+		xOldRef = xIn
+		for j := range xRef {
+			xRef[j] *= 64
+		}
+
+		fft.paddedFft(&xIn, &xOld, windowRectangular, &spectrum)
+		xOld = xIn
+		fft.inv(&spectrum, &xOut)
+
+		assert.InDeltaSlice(t, xRef[:], xOut[:], 0.1)
+		assert.Equal(t, xOldRef, xOld)
+	}
 }
