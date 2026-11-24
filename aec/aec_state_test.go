@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -276,25 +277,11 @@ func aecStateFlags(state *aecState) []float32 {
 	}
 }
 
-// The upstream AecState, built with and without fused multiply-add,
-// gives the same flags on the reference scenario, but values that differ
-// by up to 0.02% for the levels and 2.3% for the spectra. The rounding of
-// the FFT feeds back through the adaptation of the filters.
-const (
-	aecStateLevelsEpsilon = 1e-2
-	aecStateSpectraDelta  = 0.05
-)
-
 // assertAecStateSpectrum compares a spectrum with the next line of the
-// reference that has this name, relative to its largest value.
+// reference that has this name, bit for bit.
 func assertAecStateSpectrum(t *testing.T, reference *referenceCursor, name string, got []float32) {
 	t.Helper()
-	want := reference.next(name)
-	var largest float32
-	for _, value := range want {
-		largest = max(largest, abs32(value))
-	}
-	assert.InDeltaSlice(t, want, got, float64(largest)*aecStateSpectraDelta, name)
+	assert.Equal(t, reference.next(name), got, name)
 }
 
 // assertAecStateSpectra compares the spectra of a block with the
@@ -320,12 +307,14 @@ func assertAecStateSpectra(t *testing.T, reference *referenceCursor, scenario *a
 }
 
 // TestAecState_MatchesUpstream compares the state with the upstream
-// AecState at the pinned commit: the blocks where the flags and the
+// AecState at the pinned commit, bit for bit: the blocks where the flags and the
 // delays change, the fullband ERLE, the time-domain ERL and the reverb
 // decays every 5th block, and the ERLE, the ERL, the frequency response
 // of the reverb, the residual echo scaling and the reverb of the render
 // signal of some blocks.
 func TestAecState_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	for _, tc := range aecStateScenarioCases() {
 		t.Run(tc.suffix()[1:], func(t *testing.T) {
 			reference := newReferenceCursor(t, "testdata/aec_state_upstream.txt", tc.suffix())
@@ -344,7 +333,7 @@ func TestAecState_MatchesUpstream(t *testing.T) {
 						state.fullBandErleLog2(), state.erlTimeDomain(), state.reverbDecay(false), state.reverbDecay(true),
 					}
 					require.Equal(t, float32(index), want[0])
-					require.InEpsilonSlice(t, want[1:], got, aecStateLevelsEpsilon, "block %d", index)
+					require.Equal(t, want[1:], got, "block %d", index)
 				}
 				if scenario.dumpsSpectra(index) {
 					assertAecStateSpectra(t, reference, scenario, index)

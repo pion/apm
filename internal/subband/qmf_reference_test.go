@@ -7,6 +7,7 @@ package subband
 import (
 	"testing"
 
+	"github.com/pion/apm/internal/refdata"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -75,10 +76,11 @@ func qmfReferenceOutput() [][]float32 {
 	}
 }
 
-// qmfReferenceDelta allows for fused multiply-add on some architectures.
-const qmfReferenceDelta = 0.01
-
+// TestQMF_MatchesUpstream compares the bands and the output with
+// upstream, bit for bit.
 func TestQMF_MatchesUpstream(t *testing.T) {
+	refdata.SkipIfFusesMultiplyAdd(t)
+
 	var state QMFState
 	for i, in := range qmfReferenceInput() {
 		low := make([]float32, len(in)/2)
@@ -86,10 +88,10 @@ func TestQMF_MatchesUpstream(t *testing.T) {
 		out := make([]float32, len(in))
 
 		AnalysisQMF(in, low, high, &state)
-		assert.InDeltaSlice(t, qmfReferenceLow()[i], low, qmfReferenceDelta, "low band, frame %d", i)
-		assert.InDeltaSlice(t, qmfReferenceHigh()[i], high, qmfReferenceDelta, "high band, frame %d", i)
+		assert.Equal(t, qmfReferenceLow()[i], low, "low band, frame %d", i)
+		assert.Equal(t, qmfReferenceHigh()[i], high, "high band, frame %d", i)
 
 		SynthesisQMF(low, high, out, &state)
-		assert.InDeltaSlice(t, qmfReferenceOutput()[i], out, qmfReferenceDelta, "output, frame %d", i)
+		assert.Equal(t, qmfReferenceOutput()[i], out, "output, frame %d", i)
 	}
 }
