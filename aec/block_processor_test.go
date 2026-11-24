@@ -42,6 +42,54 @@ func TestBlockProcessor_TestLongerCall(t *testing.T) {
 	runBasicSetupAndAPICallTest(t, 16000, 20*kNumBlocksPerSecond)
 }
 
+// fillSampleVector mirrors FillSampleVector in block_processor_unittest.cc.
+func fillSampleVector(callCounter, delay int, samples []float32) {
+	for i := range samples {
+		samples[i] = float32(callCounter-delay)*10000 + float32(i)
+	}
+}
+
+// Port of BlockProcessor.ExternalDelayAppliedCorrectlyWithInitialCaptureCalls.
+// Upstream checks, in a mock echo remover, that the render block it reads
+// equals the capture block. The render buffer still holds that block after
+// the call, so the test compares it with a copy of the capture block.
+func TestBlockProcessor_ExternalDelayAppliedCorrectlyWithInitialCaptureCalls(t *testing.T) {
+	const sampleRateHz = 16000
+	const delayInBlocks = 5
+	const delayInMs = 20
+	config := defaultEchoCanceller3Config()
+	config.delay.useExternalDelayEstimator = true
+	processor := newBlockProcessor(config, sampleRateHz, 1, 1)
+	render := newBlock(numBandsForRate(sampleRateHz), 1)
+	capture := newBlock(numBandsForRate(sampleRateHz), 1)
+
+	// Process 10 capture calls, where no render data is available, then 10
+	// render calls, populating the buffer, then 2 capture calls, verifying
+	// that the delay was applied correctly.
+	processor.setAudioBufferDelay(delayInMs)
+	captureCallCounter := 0
+	renderCallCounter := 0
+	for range 10 {
+		captureCallCounter++
+		fillSampleVector(captureCallCounter, delayInBlocks, capture.view(0, 0))
+		processor.processCapture(false, false, nil, capture)
+	}
+	for range 10 {
+		renderCallCounter++
+		fillSampleVector(renderCallCounter, 0, render.view(0, 0))
+		processor.bufferRender(render)
+	}
+
+	want := make([]float32, kBlockSize)
+	for range 2 {
+		captureCallCounter++
+		fillSampleVector(captureCallCounter, delayInBlocks, capture.view(0, 0))
+		copy(want, capture.view(0, 0))
+		processor.processCapture(false, false, nil, capture)
+		assert.Equal(t, want, processor.renderBuffer.getRenderBuffer().getBlock(0).view(0, 0))
+	}
+}
+
 // blockProcessorScenario holds the state of the upstream reference
 // scenario of the block processor.
 //
