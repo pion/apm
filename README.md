@@ -16,9 +16,7 @@
 <br>
 
 A pure Go port of the WebRTC Audio Processing Module: echo cancellation (AEC3),
-noise suppression, gain control and high-pass filtering. Of the gain
-controller (AGC2), the fixed digital gain and the limiter are ported; the
-adaptive digital controller is not.
+noise suppression, automatic gain control (AGC2) and high-pass filtering.
 
 ### Usage
 ```go
