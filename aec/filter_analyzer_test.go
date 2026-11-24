@@ -62,7 +62,7 @@ func TestFilterAnalyzer_MatchesUpstream(t *testing.T) {
 					analyzer.reset()
 				}
 				if index == 700 || index == 1499 {
-					assertNear(t, reference.next("adjusted_filter"), analyzer.getAdjustedFilters()[tc.numCapture-1],
+					assertMatchesUpstream(t, reference.next("adjusted_filter"), analyzer.getAdjustedFilters()[tc.numCapture-1],
 						"adjusted_filter")
 				}
 			}

@@ -10,22 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// aec3FftReferenceRelativeDelta bounds the difference to upstream
-// relative to the largest value of a transform. The Go FFT rounds
-// differently than the Ooura FFT used upstream.
-const aec3FftReferenceRelativeDelta = 2e-6
-
 func assertTransform(t *testing.T, want, got []float32, name string) {
 	t.Helper()
-	var largest float32
-	for _, value := range want {
-		largest = max(largest, abs32(value))
-	}
-	assert.InDeltaSlice(t, want, got, float64(largest)*aec3FftReferenceRelativeDelta, name)
+	assert.Equal(t, want, got, name)
 }
 
 // TestAec3Fft_MatchesUpstream compares every transform with the upstream
-// Aec3Fft at the pinned commit, fed the same generated noise. Each line
+// Aec3Fft at the pinned commit, bit for bit, fed the same generated
+// noise. Each line
 // of the reference file is keyed by the name of the transform.
 func TestAec3Fft_MatchesUpstream(t *testing.T) {
 	reference := map[string][]float32{}

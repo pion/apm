@@ -143,18 +143,18 @@ func (s *subtractorScenario) assertOutput(t *testing.T, reference *referenceCurs
 	channel := s.numCapture - 1
 	out := &s.outputs[channel]
 	require.Equal(t, []float32{float32(index)}, reference.next("step"))
-	assertNear(t, reference.next("e_refined"), out.eRefined[:], "e_refined")
-	assertNear(t, reference.next("e_coarse"), out.eCoarse[:], "e_coarse")
-	assertNear(t, reference.next("s_refined"), out.sRefined[:], "s_refined")
-	assertNear(t, reference.next("E_refined_re"), out.ERefined.re[:], "E_refined_re")
-	assertNear(t, reference.next("E_refined_im"), out.ERefined.im[:], "E_refined_im")
-	assertNear(t, reference.next("E2_refined"), out.E2Refined[:], "E2_refined")
-	assertNear(t, reference.next("E2_coarse"), out.E2Coarse[:], "E2_coarse")
-	assertNear(t, reference.next("impulse_response"), s.subtractor.filterImpulseResponses()[channel],
+	assertMatchesUpstream(t, reference.next("e_refined"), out.eRefined[:], "e_refined")
+	assertMatchesUpstream(t, reference.next("e_coarse"), out.eCoarse[:], "e_coarse")
+	assertMatchesUpstream(t, reference.next("s_refined"), out.sRefined[:], "s_refined")
+	assertMatchesUpstream(t, reference.next("E_refined_re"), out.ERefined.re[:], "E_refined_re")
+	assertMatchesUpstream(t, reference.next("E_refined_im"), out.ERefined.im[:], "E_refined_im")
+	assertMatchesUpstream(t, reference.next("E2_refined"), out.E2Refined[:], "E2_refined")
+	assertMatchesUpstream(t, reference.next("E2_coarse"), out.E2Coarse[:], "E2_coarse")
+	assertMatchesUpstream(t, reference.next("impulse_response"), s.subtractor.filterImpulseResponses()[channel],
 		"impulse_response")
 	h2 := s.subtractor.filterFrequencyResponses()[channel]
 	require.Equal(t, []float32{float32(len(h2))}, reference.next("frequency_response_size"))
-	assertNear(t, reference.next("frequency_response_1"), h2[1][:], "frequency_response_1")
+	assertMatchesUpstream(t, reference.next("frequency_response_1"), h2[1][:], "frequency_response_1")
 }
 
 // TestSubtractor_MatchesUpstream compares the outputs and the filter

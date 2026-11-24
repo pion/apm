@@ -33,19 +33,10 @@ func TestAdaptiveFirFilter_FilterSize(t *testing.T) {
 	}
 }
 
-// adaptiveFilterReferenceRelativeDelta bounds the difference to upstream
-// relative to the largest value of a vector. The Go FFT rounds differently
-// than the Ooura FFT used upstream, and the difference feeds back through
-// the adaptation.
-const adaptiveFilterReferenceRelativeDelta = 1e-3
-
-func assertNear(t *testing.T, want, got []float32, name string) {
+// assertMatchesUpstream compares a vector with upstream, bit for bit.
+func assertMatchesUpstream(t *testing.T, want, got []float32, name string) {
 	t.Helper()
-	var largest float32
-	for _, value := range want {
-		largest = max(largest, abs32(value))
-	}
-	assert.InDeltaSlice(t, want, got, float64(largest)*adaptiveFilterReferenceRelativeDelta, name)
+	assert.Equal(t, want, got, name)
 }
 
 // referenceCursor reads the lines of a reference file that end with a
@@ -213,22 +204,22 @@ func TestAdaptiveFirFilter_MatchesUpstream(t *testing.T) {
 					continue
 				}
 				require.Equal(t, []float32{float32(index)}, reference.next("step"))
-				assertNear(t, reference.next("e"), scenario.filterError[:], "e")
+				assertMatchesUpstream(t, reference.next("e"), scenario.filterError[:], "e")
 				assert.Equal(t, reference.next("y"), scenario.capture)
-				assertNear(t, reference.next("s_re"), scenario.echo.re[:], "s_re")
-				assertNear(t, reference.next("s_im"), scenario.echo.im[:], "s_im")
-				assertNear(t, reference.next("g_re"), scenario.gainData.re[:], "g_re")
-				assertNear(t, reference.next("g_im"), scenario.gainData.im[:], "g_im")
-				assertNear(t, reference.next("render_power"), scenario.renderPower[:], "render_power")
+				assertMatchesUpstream(t, reference.next("s_re"), scenario.echo.re[:], "s_re")
+				assertMatchesUpstream(t, reference.next("s_im"), scenario.echo.im[:], "s_im")
+				assertMatchesUpstream(t, reference.next("g_re"), scenario.gainData.re[:], "g_re")
+				assertMatchesUpstream(t, reference.next("g_im"), scenario.gainData.im[:], "g_im")
+				assertMatchesUpstream(t, reference.next("render_power"), scenario.renderPower[:], "render_power")
 			}
 
-			assertNear(t, reference.next("h"), scenario.impulseResponse, "h")
+			assertMatchesUpstream(t, reference.next("h"), scenario.impulseResponse, "h")
 			for p := 0; p < len(scenario.h2); p += 4 {
-				assertNear(t, reference.next(fmt.Sprintf("h2_%d", p)), scenario.h2[p][:], "h2")
+				assertMatchesUpstream(t, reference.next(fmt.Sprintf("h2_%d", p)), scenario.h2[p][:], "h2")
 			}
 			part := &scenario.filter.getFilter()[2][tc.numRenderChannels-1]
-			assertNear(t, reference.next("filter_re"), part.re[:], "filter_re")
-			assertNear(t, reference.next("filter_im"), part.im[:], "filter_im")
+			assertMatchesUpstream(t, reference.next("filter_re"), part.re[:], "filter_re")
+			assertMatchesUpstream(t, reference.next("filter_im"), part.im[:], "filter_im")
 
 			// Like the upstream test, verify that the filter performs well.
 			ratio := reference.next("ratio")[0]

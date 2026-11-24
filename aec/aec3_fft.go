@@ -4,10 +4,7 @@
 
 package aec
 
-import "github.com/pion/apm/internal/dsp/fft"
-
-// Aec3 uses a 128-point real FFT. We build a single plan once per
-// canceller and reuse it across forward/inverse calls.
+import "github.com/pion/apm/internal/ooura"
 
 type windowKind int
 
@@ -75,38 +72,24 @@ var (
 	}
 )
 
-// aec3Fft wraps a dsp/fft plan and exposes the upstream Aec3Fft API.
-type aec3Fft struct {
-	plan *fft.Plan
-}
+// aec3Fft mirrors Aec3Fft: the Ooura FFT of length 128.
+type aec3Fft struct{}
 
 func newAec3Fft() *aec3Fft {
-	return &aec3Fft{plan: fft.New(kFftLength)}
+	return &aec3Fft{}
 }
 
-// fwd mirrors Aec3Fft::Fft. Like the Ooura FFT upstream, the imaginary
-// part has the opposite sign of the usual DFT.
+// fwd mirrors Aec3Fft::Fft. Like upstream, x is overwritten.
 func (a *aec3Fft) fwd(x *[kFftLength]float32, out *fftData) {
-	a.plan.Forward(x[:], out.re[:], out.im[:])
-	for k := 1; k < kFftLengthBy2; k++ {
-		out.im[k] = -out.im[k]
-	}
-	out.im[0] = 0
-	out.im[kFftLengthBy2] = 0
+	ooura.Fft128(x)
+	out.copyFromPackedArray(x)
 }
 
-// inv mirrors Aec3Fft::Ifft. Like the Ooura FFT upstream, the result is
+// inv mirrors Aec3Fft::Ifft. Like the Ooura FFT, the result is
 // kFftLengthBy2 times the input of fwd.
 func (a *aec3Fft) inv(in *fftData, x *[kFftLength]float32) {
-	var im [kFftLengthBy2Plus1]float32
-	for k := 1; k < kFftLengthBy2; k++ {
-		im[k] = -in.im[k]
-	}
-	a.plan.Inverse(in.re[:], im[:], x[:])
-	const scale = float32(kFftLengthBy2)
-	for i := range x {
-		x[i] *= scale
-	}
+	in.copyToPackedArray(x)
+	ooura.InverseFft128(x)
 }
 
 // zeroPaddedFft puts a 64-sample x at the end of a 128-sample buffer,
