@@ -131,3 +131,50 @@ func powerOf(x []float32) float64 {
 
 	return s / float64(len(x))
 }
+
+// populateIdenticalChannels mirrors PopulateInputFrameWithIdenticalChannels
+// of noise_suppressor_unittest.cc. bands is indexed [band][channel][sample].
+func populateIdenticalChannels(bands [][][]float32, frameIndex int) {
+	for b, band := range bands {
+		for _, channel := range band {
+			for i := range channel {
+				value := float32(frameIndex*nsFrameSize + i)
+				channel[i] = 0
+				if value > 0 {
+					channel[i] = float32(5000*b) + value
+				}
+			}
+		}
+	}
+}
+
+// Port of NoiseSuppressor.IdenticalChannelEffects: the same effect is
+// applied to all channels. Upstream loops over the suppression levels
+// without setting them, so the test runs once with the default config.
+func TestSuppressor_IdenticalChannelEffects(t *testing.T) {
+	for _, rate := range []int{16000, 32000, 48000} {
+		for _, numChannels := range []int{1, 4, 8} {
+			sup, err := NewSuppressor(DefaultConfig(), rate, numChannels)
+			require.NoError(t, err)
+			bands := make([][][]float32, rate/16000)
+			for b := range bands {
+				bands[b] = make([][]float32, numChannels)
+				for ch := range bands[b] {
+					bands[b][ch] = make([]float32, nsFrameSize)
+				}
+			}
+
+			for frameIndex := range 1000 {
+				populateIdenticalChannels(bands, frameIndex)
+				require.NoError(t, sup.Analyze(bands[0]))
+				require.NoError(t, sup.Process(bands[0], bands[1:]...))
+				for b, band := range bands {
+					for ch := 1; ch < numChannels; ch++ {
+						require.Equal(t, band[0], band[ch], "rate %d, %d channels, frame %d, band %d, channel %d",
+							rate, numChannels, frameIndex, b, ch)
+					}
+				}
+			}
+		}
+	}
+}
