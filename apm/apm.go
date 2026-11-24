@@ -144,8 +144,19 @@ func resolveConfig(cfg Config) (Config, error) {
 	if cfg.ReverseNumChannels < 0 {
 		return cfg, fmt.Errorf("%w: reverse %d", ErrInvalidChannels, cfg.ReverseNumChannels)
 	}
+	// Like upstream, an invalid gain controller config is replaced with
+	// the default one, which disables the gain controller.
+	if !validAGCConfig(cfg.AGC) {
+		cfg.AGC = AGCConfig{}
+	}
 
 	return cfg, nil
+}
+
+// validAGCConfig matches GainController2::Validate on the fixed digital
+// gain.
+func validAGCConfig(cfg AGCConfig) bool {
+	return cfg.FixedDigital.GainDB >= 0 && cfg.FixedDigital.GainDB < 50
 }
 
 // initCapture sets up the band split of the capture stream and, when a
@@ -262,7 +273,7 @@ func (p *Processor) initModules() error {
 	if cfg.AGC.Enabled {
 		// Upstream runs GainController2 on the full band, after the bands
 		// are merged.
-		c, err := agc.New(agc.Config{FixedDigitalGainDB: cfg.AGC.CompressionGain}, int(p.procRate), cfg.NumChannels)
+		c, err := agc.New(agc.Config{FixedDigitalGainDB: cfg.AGC.FixedDigital.GainDB}, int(p.procRate), cfg.NumChannels)
 		if err != nil {
 			return fmt.Errorf("apm: agc: %w", err)
 		}

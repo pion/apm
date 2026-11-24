@@ -187,7 +187,7 @@ func TestNS_SpeechDistortion(t *testing.T) {
 }
 
 func TestAGC_TargetLevel(t *testing.T) {
-	t.Skip("AGC target level control is not ported yet")
+	t.Skip("the adaptive digital gain controller is not ported yet")
 	bounds := property.MustBounds(t, "agc_target_level")
 
 	const dur = rate * 2
@@ -200,7 +200,7 @@ func TestAGC_TargetLevel(t *testing.T) {
 	copy(in[step:], loud)
 
 	cfg := apm.DefaultConfig(apm.Rate16k, 1)
-	cfg.AGC = apm.AGCConfig{Enabled: true, TargetLevelDBFS: -10, CompressionGain: 9}
+	cfg.AGC = apm.AGCConfig{Enabled: true}
 	out := process(t, cfg, in)
 
 	at := metrics.AttackTime(out, rate, step, 160, 3, 1.0)
@@ -217,7 +217,7 @@ func TestAGC_NoOvershoot(t *testing.T) {
 	synth.ScaleToDBFS(in, 0) // drive AGC hard
 
 	cfg := apm.DefaultConfig(apm.Rate16k, 1)
-	cfg.AGC = apm.AGCConfig{Enabled: true, TargetLevelDBFS: -3, CompressionGain: 12}
+	cfg.AGC = apm.AGCConfig{Enabled: true, FixedDigital: apm.AGCFixedDigital{GainDB: 12}}
 	out := process(t, cfg, in)
 
 	peak := metrics.PeakLevelDBFS(out)

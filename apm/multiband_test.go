@@ -28,7 +28,7 @@ func TestProcessor_SplitBand(t *testing.T) {
 	cfg48.MaxProcessingRate = Rate48k
 	cfg48.HPF.Enabled = true
 	cfg48.NS = NSConfig{Enabled: true, Level: NSModerate}
-	cfg48.AGC = AGCConfig{Enabled: true, CompressionGain: 6}
+	cfg48.AGC = AGCConfig{Enabled: true, FixedDigital: AGCFixedDigital{GainDB: 6}}
 
 	for seed, cfg := range []Config{cfg32, cfg48} {
 		proc, err := New(cfg)
@@ -105,7 +105,7 @@ func TestProcessor_AGCAppliesGainToUpperBands(t *testing.T) {
 		toneHz float64
 	}{{Rate32k, 12000}, {Rate48k, 20000}} {
 		cfg := DefaultConfig(tc.rate, 1)
-		cfg.AGC = AGCConfig{Enabled: true, CompressionGain: 6}
+		cfg.AGC = AGCConfig{Enabled: true, FixedDigital: AGCFixedDigital{GainDB: 6}}
 		proc, err := New(cfg)
 		require.NoError(t, err)
 
@@ -175,7 +175,7 @@ func TestProcessor_HPFFiltersFullBand(t *testing.T) {
 func TestProcessor_SkipsBandSplitWhenUnused(t *testing.T) {
 	for _, rate := range []SampleRate{Rate32k, Rate48k} {
 		cfg := DefaultConfig(rate, 1)
-		cfg.AGC = AGCConfig{Enabled: true, CompressionGain: 0}
+		cfg.AGC = AGCConfig{Enabled: true}
 		proc, err := New(cfg)
 		require.NoError(t, err)
 

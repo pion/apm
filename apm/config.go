@@ -55,11 +55,17 @@ const (
 	NSVeryHigh
 )
 
-// AGCConfig controls the adaptive digital automatic gain control.
+// AGCConfig controls the gain controller, like upstream's GainController2
+// config. Only its fixed digital gain, followed by the limiter, is ported.
 type AGCConfig struct {
-	Enabled         bool
-	TargetLevelDBFS float32
-	CompressionGain float32
+	Enabled      bool
+	FixedDigital AGCFixedDigital
+}
+
+// AGCFixedDigital is the fixed digital gain, in dB, applied before the
+// limiter. It must be in [0, 50).
+type AGCFixedDigital struct {
+	GainDB float32
 }
 
 // AECConfig controls the acoustic echo canceller: AEC3 with the upstream
@@ -77,6 +83,5 @@ func DefaultConfig(rate SampleRate, channels int) Config {
 		NumChannels:       channels,
 		MaxProcessingRate: Rate32k,
 		NS:                NSConfig{Level: NSModerate},
-		AGC:               AGCConfig{TargetLevelDBFS: -3, CompressionGain: 9},
 	}
 }

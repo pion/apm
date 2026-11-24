@@ -130,7 +130,7 @@ func scoreNSNoisy(score *Score, clean []float32, rate int) error {
 func scoreAGC(score *Score, clean []float32, rate int) error {
 	synth.ScaleToDBFS(clean, -25) // quiet input
 	cfg := apm.DefaultConfig(apm.SampleRate(rate), 1)
-	cfg.AGC = apm.AGCConfig{Enabled: true, TargetLevelDBFS: -10, CompressionGain: 9}
+	cfg.AGC = apm.AGCConfig{Enabled: true, FixedDigital: apm.AGCFixedDigital{GainDB: 9}}
 	out, err := process(cfg, apm.SampleRate(rate), clean)
 	if err != nil {
 		return err

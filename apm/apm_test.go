@@ -233,7 +233,7 @@ func TestSuitableProcessRate(t *testing.T) {
 func TestProcessor_Resamples8kHzCapture(t *testing.T) {
 	cfg := DefaultConfig(Rate8k, 1)
 	cfg.HPF.Enabled = true
-	cfg.AGC = AGCConfig{Enabled: true, CompressionGain: 6}
+	cfg.AGC = AGCConfig{Enabled: true, FixedDigital: AGCFixedDigital{GainDB: 6}}
 	proc, err := New(cfg)
 	require.NoError(t, err)
 
@@ -367,4 +367,34 @@ func TestProcessor_HPFRequiredByNSAndAEC(t *testing.T) {
 			assert.InDelta(t, 0.2, mean, 0.02, tc.name)
 		}
 	}
+}
+
+// Ports CheckDefaultConfig and CheckFixedDigitalConfig from
+// gain_controller2_unittest.cc.
+func TestValidAGCConfig(t *testing.T) {
+	assert.True(t, validAGCConfig(AGCConfig{}))
+	for _, tc := range []struct {
+		gainDB float32
+		valid  bool
+	}{
+		{-5, false}, // Attenuation is not allowed.
+		{0, true},
+		{15, true},
+		{50, false},
+	} {
+		cfg := AGCConfig{FixedDigital: AGCFixedDigital{GainDB: tc.gainDB}}
+		assert.Equal(t, tc.valid, validAGCConfig(cfg), "gain %v dB", tc.gainDB)
+	}
+}
+
+// Like upstream, an invalid gain controller config is replaced with the
+// default one, which disables the gain controller.
+func TestNew_ReplacesInvalidAGCConfig(t *testing.T) {
+	cfg := DefaultConfig(Rate16k, 1)
+	cfg.AGC = AGCConfig{Enabled: true, FixedDigital: AGCFixedDigital{GainDB: -5}}
+	proc, err := New(cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, AGCConfig{}, proc.Config().AGC)
+	assert.Nil(t, proc.agc)
 }
