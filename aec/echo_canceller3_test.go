@@ -220,6 +220,103 @@ func (s *stereoDetectionTest) assertStereo(t *testing.T, stereo bool) {
 	assert.Equal(t, wantBlocks, s.canceller.configSelector.activeConfig().filter.coarseInitial.lengthBlocks)
 }
 
+// recordingProcessor stands for the StrictMock block processor of the
+// messaging tests: it records the flags of every capture call and counts
+// the render calls.
+type recordingProcessor struct {
+	captureTransportVerificationProcessor
+	echoPathGainChanges, saturations []bool
+	renderCalls                      int
+}
+
+func (r *recordingProcessor) processCapture(echoPathGainChange, captureSignalSaturation bool, _, _ *block) {
+	r.echoPathGainChanges = append(r.echoPathGainChanges, echoPathGainChange)
+	r.saturations = append(r.saturations, captureSignalSaturation)
+}
+
+func (r *recordingProcessor) bufferRender(*block) { r.renderCalls++ }
+
+// expectedFlags returns numBlocks flags, the first numSet of which are set.
+func expectedFlags(numBlocks, numSet int) []bool {
+	flags := make([]bool, numBlocks)
+	for i := range numSet {
+		flags[i] = true
+	}
+
+	return flags
+}
+
+const (
+	messagingBlocksPerFrame = splitBandSize / kBlockSize
+	messagingBlocks         = echoCanceller3TestFrames * splitBandSize / kBlockSize
+)
+
+// Port of EchoCanceller3Messaging.CaptureSaturation: saturation is passed
+// to the block processor for the blocks of the saturated frame only.
+func TestEchoCanceller3_CaptureSaturation(t *testing.T) {
+	for _, rate := range []int{16000, 32000, 48000} {
+		for _, tc := range []struct {
+			name      string
+			saturated float32
+			numSet    int
+		}{
+			{"none", 0, 0},
+			{"one negative", -32768, messagingBlocksPerFrame},
+			{"one positive", 32767, messagingBlocksPerFrame},
+		} {
+			processor := &recordingProcessor{}
+			tester := newEchoCanceller3Tester(t, rate, processor)
+			fullBand := [][]float32{make([]float32, rate/100)}
+
+			for frameIndex := range echoCanceller3TestFrames {
+				clear(fullBand[0])
+				if frameIndex == 0 {
+					fullBand[0][10] = tc.saturated
+				}
+				tester.canceller.analyzeCapture(fullBand)
+				populateInputBands(frameIndex, tester.capture[0], 0)
+				populateInputBands(frameIndex, tester.render[0], 0)
+				tester.canceller.analyzeRender(tester.render)
+				tester.canceller.processCapture(tester.capture, nil, false)
+			}
+
+			name := fmt.Sprintf("rate %d, %s", rate, tc.name)
+			assert.Equal(t, messagingBlocks, processor.renderCalls, name)
+			assert.Equal(t, expectedFlags(messagingBlocks, tc.numSet), processor.saturations, name)
+		}
+	}
+}
+
+// Port of EchoCanceller3Messaging.EchoPathChange: echo path changes are
+// passed to the block processor for the blocks of the flagged frames.
+func TestEchoCanceller3_EchoPathChange(t *testing.T) {
+	for _, rate := range []int{16000, 32000, 48000} {
+		for _, tc := range []struct {
+			name   string
+			change func(frameIndex int) bool
+			numSet int
+		}{
+			{"none", func(int) bool { return false }, 0},
+			{"one sticky", func(int) bool { return true }, messagingBlocks},
+			{"one non-sticky", func(frameIndex int) bool { return frameIndex == 0 }, messagingBlocksPerFrame},
+		} {
+			processor := &recordingProcessor{}
+			tester := newEchoCanceller3Tester(t, rate, processor)
+
+			for frameIndex := range echoCanceller3TestFrames {
+				populateInputBands(frameIndex, tester.capture[0], 0)
+				populateInputBands(frameIndex, tester.render[0], 0)
+				tester.canceller.analyzeRender(tester.render)
+				tester.canceller.processCapture(tester.capture, nil, tc.change(frameIndex))
+			}
+
+			name := fmt.Sprintf("rate %d, %s", rate, tc.name)
+			assert.Equal(t, messagingBlocks, processor.renderCalls, name)
+			assert.Equal(t, expectedFlags(messagingBlocks, tc.numSet), processor.echoPathGainChanges, name)
+		}
+	}
+}
+
 // Port of EchoCanceller3.DetectionOfProperStereo.
 func TestEchoCanceller3_DetectionOfProperStereo(t *testing.T) {
 	config := defaultEchoCanceller3Config()
