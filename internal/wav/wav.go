@@ -338,15 +338,22 @@ func (w *Writer) grow(need int) {
 func (w *Writer) encodePCM16(samples []float32) {
 	w.grow(len(samples) * 2)
 	for i, s := range samples {
-		v := s * 32767
-		switch {
-		case v > 32767:
-			v = 32767
-		case v < -32768:
-			v = -32768
-		}
-		binary.LittleEndian.PutUint16(w.scratch[i*2:], uint16(int16(v))) //nolint:gosec // Two's complement reinterpretation.
+		v := int16(toPCM16(s))
+		binary.LittleEndian.PutUint16(w.scratch[i*2:], uint16(v)) //nolint:gosec // Two's complement reinterpretation.
 	}
+}
+
+// toPCM16 scales a sample to the int16 range and clamps it.
+func toPCM16(s float32) float32 {
+	v := s * 32767
+	switch {
+	case v > 32767:
+		v = 32767
+	case v < -32768:
+		v = -32768
+	}
+
+	return v
 }
 
 func (w *Writer) encodeFloat32(samples []float32) {
